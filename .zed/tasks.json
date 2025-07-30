@@ -1,0 +1,6 @@
+[
+  {
+    "label": "Build & compile file",
+    "command": "cargo run examples/main.sl"
+  }
+]
