@@ -2,5 +2,9 @@
   {
     "label": "Build & compile file",
     "command": "cargo run examples/main.sl"
+  },
+  {
+    "label": "Run tests",
+    "command": "cargo nextest run"
   }
 ]

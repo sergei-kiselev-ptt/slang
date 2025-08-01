@@ -1,3 +1,5 @@
+mod parser;
+
 use std::env;
 use std::fs::read_to_string;
 use std::io::Error;
