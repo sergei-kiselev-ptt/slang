@@ -109,7 +109,7 @@ mod tests {
     use test_case::test_case;
 
     #[test]
-    fn scan_next_number() {
+    fn scan_next_token_number() {
         let input = vec!['2', '3', '7'];
         let (_token, end) = super::scan_next_token(&input, 0);
 
@@ -121,7 +121,7 @@ mod tests {
     }
 
     #[test]
-    fn scan_next_minus() {
+    fn scan_next_token_minus() {
         let input = vec!['-'];
         let (_token, end) = super::scan_next_token(&input, 0);
 
@@ -133,7 +133,7 @@ mod tests {
     }
 
     #[test]
-    fn scan_next_plus() {
+    fn scan_next_token_plus() {
         let input = vec!['+'];
         let (_token, end) = super::scan_next_token(&input, 0);
 
@@ -145,7 +145,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_number_minus_number_plus_number() {
+    fn parse_into_tokens_number_minus_number_plus_number() {
         let tokens = super::parse_into_tokens("2-1+3");
 
         assert_eq!(tokens.len(), 5);
@@ -167,7 +167,7 @@ mod tests {
     #[test_case("3- 1")]
     #[test_case(" 4- 1")]
     #[test_case(" 5 - 1")]
-    fn parse_expr_skip_insignificant_symbols(input: &str) {
+    fn parse_into_tokens_skip_insignificant_symbols(input: &str) {
         let tokens = super::parse_into_tokens(input);
 
         assert_eq!(tokens.len(), 3);
