@@ -39,6 +39,7 @@ fn parse_into_tokens(input: &str) -> Vec<Token> {
 fn scan_next_token(input: &Vec<char>, current: usize) -> (Option<Token>, usize) {
     match input[current] {
         ' ' | '\t' | '\r' => (None, current + 1),
+        // what to do with \n ???
         '-' => (Some(minus()), current + 1),
         '+' => (Some(plus()), current + 1),
         other => {
@@ -105,6 +106,7 @@ fn minus() -> Token {
 #[cfg(test)]
 mod tests {
     use super::TokenType;
+    use test_case::test_case;
 
     #[test]
     fn scan_next_number() {
@@ -157,5 +159,20 @@ mod tests {
         assert_eq!(tokens[3].token_type, TokenType::Plus);
         assert_eq!(tokens[4].lexeme, "3");
         assert_eq!(tokens[4].token_type, TokenType::Number);
+    }
+
+    #[test_case("2 -1")]
+    #[test_case("2 \t-1")]
+    #[test_case("2 \r-1")]
+    #[test_case("3- 1")]
+    #[test_case(" 4- 1")]
+    #[test_case(" 5 - 1")]
+    fn parse_expr_skip_insignificant_symbols(input: &str) {
+        let tokens = super::parse_into_tokens(input);
+
+        assert_eq!(tokens.len(), 3);
+        assert_eq!(tokens[0].token_type, TokenType::Number);
+        assert_eq!(tokens[1].token_type, TokenType::Minus);
+        assert_eq!(tokens[2].token_type, TokenType::Number);
     }
 }
