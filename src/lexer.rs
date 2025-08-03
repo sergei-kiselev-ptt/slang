@@ -7,6 +7,8 @@ pub enum TokenType {
     // RightPar,
     Minus,
     Plus,
+    Star,
+    Slash,
 
     // Literals
     Number,
@@ -42,6 +44,8 @@ fn scan_next_token(input: &Vec<char>, current: usize) -> (Option<Token>, usize) 
         // what to do with \n ???
         '-' => (Some(minus()), current + 1),
         '+' => (Some(plus()), current + 1),
+        '*' => (Some(star()), current + 1),
+        '/' => (Some(slash()), current + 1),
         other => {
             if other.is_numeric() {
                 return scan_number(input, current);
@@ -70,6 +74,20 @@ fn plus() -> Token {
     Token {
         token_type: TokenType::Plus,
         lexeme: "+".to_string(),
+    }
+}
+
+fn star() -> Token {
+    Token {
+        token_type: TokenType::Star,
+        lexeme: "*".to_string(),
+    }
+}
+
+fn slash() -> Token {
+    Token {
+        token_type: TokenType::Slash,
+        lexeme: "/".to_string(),
     }
 }
 
@@ -145,10 +163,34 @@ mod tests {
     }
 
     #[test]
-    fn parse_into_tokens_number_minus_number_plus_number() {
-        let tokens = super::parse_into_tokens("2-1+3");
+    fn scan_next_token_star() {
+        let input = vec!['*'];
+        let (_token, end) = super::scan_next_token(&input, 0);
 
-        assert_eq!(tokens.len(), 5);
+        assert!(_token.is_some());
+        let token = _token.unwrap();
+        assert_eq!(end, 1);
+        assert_eq!(token.lexeme, "*");
+        assert_eq!(token.token_type, TokenType::Star);
+    }
+
+    #[test]
+    fn scan_next_token_slash() {
+        let input = vec!['/'];
+        let (_token, end) = super::scan_next_token(&input, 0);
+
+        assert!(_token.is_some());
+        let token = _token.unwrap();
+        assert_eq!(end, 1);
+        assert_eq!(token.lexeme, "/");
+        assert_eq!(token.token_type, TokenType::Slash);
+    }
+
+    #[test]
+    fn parse_into_tokens_math_expr() {
+        let tokens = super::parse_into_tokens("2-1+3*4/5");
+
+        assert_eq!(tokens.len(), 9);
         assert_eq!(tokens[0].lexeme, "2");
         assert_eq!(tokens[0].token_type, TokenType::Number);
         assert_eq!(tokens[1].lexeme, "-");
@@ -159,6 +201,14 @@ mod tests {
         assert_eq!(tokens[3].token_type, TokenType::Plus);
         assert_eq!(tokens[4].lexeme, "3");
         assert_eq!(tokens[4].token_type, TokenType::Number);
+        assert_eq!(tokens[5].lexeme, "*");
+        assert_eq!(tokens[5].token_type, TokenType::Star);
+        assert_eq!(tokens[6].lexeme, "4");
+        assert_eq!(tokens[6].token_type, TokenType::Number);
+        assert_eq!(tokens[7].lexeme, "/");
+        assert_eq!(tokens[7].token_type, TokenType::Slash);
+        assert_eq!(tokens[8].lexeme, "5");
+        assert_eq!(tokens[8].token_type, TokenType::Number);
     }
 
     #[test_case("2 -1")]
