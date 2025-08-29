@@ -1,11 +1,14 @@
 mod parser;
+mod lexer;
 
 use std::env;
 use std::fs::read_to_string;
 use std::io::Error;
 use std::process::exit;
 
+use lexer::parse_into_tokens;
 use log::{debug, error, info};
+use parser::parse;
 use simple_logger::SimpleLogger;
 use time::macros::format_description;
 
@@ -15,6 +18,13 @@ fn main() {
         .init()
         .unwrap();
 
+    // let expr_str = "1+2/3";
+    // let expr = parse(parse_into_tokens(expr_str));
+
+    // info!("Expression {}, parsed: {}", expr_str, expr.print());
+
+    // exit(0);
+    
     let args = env::args().collect::<Vec<String>>();
     debug!("Args: [{:?}]", &args);
 

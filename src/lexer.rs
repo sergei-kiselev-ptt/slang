@@ -1,6 +1,7 @@
+#![allow(dead_code)]
 use log::error;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum TokenType {
     // Single character tokens
     // LeftPar,
@@ -14,13 +15,13 @@ pub enum TokenType {
     Number,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Token {
-    token_type: TokenType,
-    lexeme: String,
+    pub token_type: TokenType,
+    pub lexeme: String,
 }
 
-fn parse_into_tokens(input: &str) -> Vec<Token> {
+pub fn parse_into_tokens(input: &str) -> Vec<Token> {
     let mut tokens = vec![];
 
     let mut start = 0;

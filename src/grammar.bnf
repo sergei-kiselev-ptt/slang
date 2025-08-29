@@ -1,0 +1,5 @@
+expression     ::= term ( ( "+" | "-" ) term )* ;
+term           ::= factor ( ( "*" | "/" ) factor )* ;
+factor         ::= unary ;
+unary          ::= ( "-" | "+" ) unary | primary ;
+primary        ::= NUMBER ;
