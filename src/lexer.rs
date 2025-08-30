@@ -41,8 +41,7 @@ pub fn parse_into_tokens(input: &str) -> Vec<Token> {
 
 fn scan_next_token(input: &Vec<char>, current: usize) -> (Option<Token>, usize) {
     match input[current] {
-        ' ' | '\t' | '\r' => (None, current + 1),
-        // what to do with \n ???
+        ' ' | '\t' | '\r' | '\n' => (None, current + 1),
         '-' => (Some(minus()), current + 1),
         '+' => (Some(plus()), current + 1),
         '*' => (Some(star()), current + 1),

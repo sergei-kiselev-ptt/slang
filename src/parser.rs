@@ -49,7 +49,10 @@ impl Parser {
         }
 
         if !self.is_at_end() {
-            error!("Parsed the expression, but there are unprocessed tokens: {:?}", self.current());
+            error!(
+                "Parsed the expression, but there are unprocessed tokens: {:?}",
+                self.current()
+            );
             panic!();
         }
 
@@ -95,7 +98,7 @@ impl Parser {
 
     fn parse_primary(&mut self) -> Expr {
         debug!("parsing primary, lexeme is {}", self.current().lexeme);
-        if self.match_token(&[TokenType::Number]){
+        if self.match_token(&[TokenType::Number]) {
             if let Ok(parsed) = self.previous().clone().lexeme.parse() {
                 return Expr::Literal(LiteralValue::Number(parsed));
             }

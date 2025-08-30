@@ -1,5 +1,5 @@
-mod parser;
 mod lexer;
+mod parser;
 
 use std::env;
 use std::fs::read_to_string;
@@ -10,7 +10,7 @@ use lexer::parse_into_tokens;
 use log::{debug, error, info};
 use parser::parse;
 use simple_logger::SimpleLogger;
-use time::macros::format_description;
+use time::{ext, macros::format_description};
 
 fn main() {
     SimpleLogger::new()
@@ -18,13 +18,6 @@ fn main() {
         .init()
         .unwrap();
 
-    // let expr_str = "1+2/3";
-    // let expr = parse(parse_into_tokens(expr_str));
-
-    // info!("Expression {}, parsed: {}", expr_str, expr.print());
-
-    // exit(0);
-    
     let args = env::args().collect::<Vec<String>>();
     debug!("Args: [{:?}]", &args);
 
@@ -47,8 +40,11 @@ fn process_file(file_path: &str) -> Result<(), Error> {
     info!(
         "File content {}\n------------\n{}------------",
         file_path,
-        content.unwrap()
+        content.as_ref().unwrap()
     );
-
+    let content_str = &content.unwrap();
+    let tokens = parse_into_tokens(content_str);
+    let expr = parse(tokens);
+    info!("Expression {}, parsed: {}", content_str, expr.print());
     return Ok(());
 }
