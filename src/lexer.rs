@@ -4,8 +4,8 @@ use log::error;
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenType {
     // Single character tokens
-    // LeftPar,
-    // RightPar,
+    LeftParen,
+    RightParen,
     Minus,
     Plus,
     Star,
@@ -47,6 +47,8 @@ fn scan_next_token(input: &Vec<char>, current: usize) -> (Option<Token>, usize) 
         '+' => (Some(plus()), current + 1),
         '*' => (Some(star()), current + 1),
         '/' => (Some(slash()), current + 1),
+        '(' => (Some(left_paren()), current + 1),
+        ')' => (Some(right_paren()), current + 1),
         other => {
             if other.is_numeric() {
                 return scan_number(input, current);
@@ -89,6 +91,20 @@ fn slash() -> Token {
     Token {
         token_type: TokenType::Slash,
         lexeme: "/".to_string(),
+    }
+}
+
+fn left_paren() -> Token {
+    Token {
+        token_type: TokenType::LeftParen,
+        lexeme: "(".to_string(),
+    }
+}
+
+fn right_paren() -> Token {
+    Token {
+        token_type: TokenType::RightParen,
+        lexeme: ")".to_string(),
     }
 }
 
@@ -185,6 +201,30 @@ mod tests {
         assert_eq!(end, 1);
         assert_eq!(token.lexeme, "/");
         assert_eq!(token.token_type, TokenType::Slash);
+    }
+
+    #[test]
+    fn scan_next_token_left_paren() {
+        let input = vec!['('];
+        let (_token, end) = super::scan_next_token(&input, 0);
+
+        assert!(_token.is_some());
+        let token = _token.unwrap();
+        assert_eq!(end, 1);
+        assert_eq!(token.lexeme, "(");
+        assert_eq!(token.token_type, TokenType::LeftParen);
+    }
+
+    #[test]
+    fn scan_next_token_right_paren() {
+        let input = vec![')'];
+        let (_token, end) = super::scan_next_token(&input, 0);
+
+        assert!(_token.is_some());
+        let token = _token.unwrap();
+        assert_eq!(end, 1);
+        assert_eq!(token.lexeme, ")");
+        assert_eq!(token.token_type, TokenType::RightParen);
     }
 
     #[test]
