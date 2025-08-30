@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use log::error;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TokenType {
     // Single character tokens
     LeftParen,

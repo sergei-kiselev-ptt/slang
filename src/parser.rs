@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use core::panic;
+
 use log::{debug, error};
 
 use crate::lexer::*;
@@ -158,6 +160,37 @@ impl Expr {
                 operator,
                 right,
             } => format!("({} {} {})", operator.lexeme, left.print(), right.print()),
+        }
+    }
+
+    pub fn eval(&self) -> f64 {
+        match self {
+            Expr::Literal(literal_value) => match literal_value {
+                LiteralValue::Number(num) => *num,
+                LiteralValue::String(_) => panic!("Can't process strings atm"),
+            },
+            Expr::Unary { operator, right } => match operator.token_type {
+                TokenType::Minus => -right.eval(),
+                TokenType::Plus => right.eval(),
+                other => {
+                    error!("Can't evaluate unary {:?}", other);
+                    panic!();
+                }
+            },
+            Expr::Binary {
+                left,
+                operator,
+                right,
+            } => match operator.token_type {
+                TokenType::Minus => left.eval() - right.eval(),
+                TokenType::Plus => left.eval() + right.eval(),
+                TokenType::Star => left.eval() * right.eval(),
+                TokenType::Slash => left.eval() / right.eval(),
+                other => {
+                    error!("Can't evaluate binary {:?}", other);
+                    panic!();
+                }
+            },
         }
     }
 }

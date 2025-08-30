@@ -10,11 +10,12 @@ use lexer::parse_into_tokens;
 use log::{debug, error, info};
 use parser::parse;
 use simple_logger::SimpleLogger;
-use time::{ext, macros::format_description};
+use time::macros::format_description;
 
 fn main() {
     SimpleLogger::new()
         .with_timestamp_format(format_description!("[hour]:[minute]:[second]"))
+        .with_level(log::LevelFilter::Info)
         .init()
         .unwrap();
 
@@ -45,6 +46,11 @@ fn process_file(file_path: &str) -> Result<(), Error> {
     let content_str = &content.unwrap();
     let tokens = parse_into_tokens(content_str);
     let expr = parse(tokens);
-    info!("Expression {}, parsed: {}", content_str, expr.print());
+    info!(
+        "Expression {}; parsed: {}; result={}",
+        content_str.trim(),
+        expr.print(),
+        expr.eval()
+    );
     return Ok(());
 }
