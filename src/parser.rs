@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use log::debug;
+use log::{debug, error};
 
 use crate::lexer::*;
 
@@ -35,7 +35,7 @@ impl Parser {
     }
 
     pub fn parse_expr(&mut self) -> Expr {
-        debug!("Parsing expression");
+        debug!("Parsing expression, lexeme is {}", self.current().lexeme);
         let mut expr = self.parse_term();
 
         while self.match_token(&[TokenType::Plus, TokenType::Minus]) {
@@ -48,11 +48,16 @@ impl Parser {
             };
         }
 
+        if !self.is_at_end() {
+            error!("Parsed the expression, but there are unprocessed tokens: {:?}", self.current());
+            panic!();
+        }
+
         expr
     }
 
     fn parse_term(&mut self) -> Expr {
-        debug!("Parsing term");
+        debug!("Parsing term, lexeme is {}", self.current().lexeme);
         let mut expr = self.parse_factor();
 
         while self.match_token(&[TokenType::Star, TokenType::Slash]) {
@@ -70,12 +75,12 @@ impl Parser {
     }
 
     fn parse_factor(&mut self) -> Expr {
-        debug!("Parsing factor");
+        debug!("Parsing factor, lexeme is {}", self.current().lexeme);
         self.parse_unary()
     }
 
     fn parse_unary(&mut self) -> Expr {
-        debug!("Parsing factor");
+        debug!("Parsing factor, lexeme is {}", self.current().lexeme);
         if self.match_token(&[TokenType::Plus, TokenType::Minus]) {
             let operator = self.previous().clone();
             let right = self.parse_unary();
@@ -89,11 +94,19 @@ impl Parser {
     }
 
     fn parse_primary(&mut self) -> Expr {
-        debug!("parsing primary");
+        debug!("parsing primary, lexeme is {}", self.current().lexeme);
         if self.match_token(&[TokenType::Number]){
             if let Ok(parsed) = self.previous().clone().lexeme.parse() {
                 return Expr::Literal(LiteralValue::Number(parsed));
             }
+        }
+
+        if self.match_token(&[TokenType::LeftParen]) {
+            let expr = self.parse_expr();
+            if !self.match_token(&[TokenType::RightParen]) {
+                panic!("Expected ')' after expresion");
+            }
+            return expr;
         }
         panic!("Only NUMBER can be a primary, found {:?}", self.current());
     }
