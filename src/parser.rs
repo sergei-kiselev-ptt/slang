@@ -36,7 +36,20 @@ impl Parser {
         Self { tokens, current: 0 }
     }
 
-    pub fn parse_expr(&mut self) -> Expr {
+    pub fn parse(&mut self) -> Expr {
+        let expr = self.parse_expr();
+        if !self.is_at_end() {
+            error!(
+                "Parsed the expression, but there are unprocessed tokens: {:?}",
+                self.current()
+            );
+            panic!();
+        }
+
+        return expr;
+    }
+
+    fn parse_expr(&mut self) -> Expr {
         debug!("Parsing expression, lexeme is {}", self.current().lexeme);
         let mut expr = self.parse_term();
 
@@ -48,14 +61,6 @@ impl Parser {
                 operator,
                 right: Box::new(right),
             };
-        }
-
-        if !self.is_at_end() {
-            error!(
-                "Parsed the expression, but there are unprocessed tokens: {:?}",
-                self.current()
-            );
-            panic!();
         }
 
         expr
@@ -107,10 +112,13 @@ impl Parser {
         }
 
         if self.match_token(&[TokenType::LeftParen]) {
+            debug!("Processing parenthesis...");
+
             let expr = self.parse_expr();
             if !self.match_token(&[TokenType::RightParen]) {
                 panic!("Expected ')' after expresion");
             }
+            debug!("Processed parenthesis");
             return expr;
         }
         panic!("Only NUMBER can be a primary, found {:?}", self.current());
@@ -125,8 +133,8 @@ impl Parser {
     }
 
     fn advance(&mut self) -> () {
-        debug!("Advancing parser");
         if !self.is_at_end() {
+            debug!("Advancing parser");
             self.current += 1
         }
     }
@@ -193,11 +201,6 @@ impl Expr {
             },
         }
     }
-}
-
-pub fn parse(tokens: Vec<Token>) -> Expr {
-    let mut parser = Parser::new(tokens);
-    parser.parse_expr()
 }
 
 #[cfg(test)]

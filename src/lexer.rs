@@ -1,4 +1,6 @@
 #![allow(dead_code)]
+use std::io::{Error, ErrorKind};
+
 use log::error;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -21,7 +23,16 @@ pub struct Token {
     pub lexeme: String,
 }
 
-pub fn parse_into_tokens(input: &str) -> Vec<Token> {
+// #[derive(Debug, Clone)]
+// pub struct LexerError;
+
+// impl Display for LexerError {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         write!(f, "Couldn't parse for input for lexems")
+//     }
+// }
+
+pub fn parse_into_tokens(input: &str) -> Result<Vec<Token>, Error> {
     let mut tokens = vec![];
 
     let mut start = 0;
@@ -29,33 +40,33 @@ pub fn parse_into_tokens(input: &str) -> Vec<Token> {
     let chars = input.chars().collect::<Vec<char>>();
 
     while start < input.len() {
-        let (token, next) = scan_next_token(&chars, start);
+        let (token, next) = scan_next_token(&chars, start)?;
         if token.is_some() {
             tokens.push(token.unwrap());
         }
         start = next;
     }
 
-    tokens
+    Ok(tokens)
 }
 
-fn scan_next_token(input: &Vec<char>, current: usize) -> (Option<Token>, usize) {
+fn scan_next_token(input: &Vec<char>, current: usize) -> Result<(Option<Token>, usize), Error> {
     match input[current] {
-        ' ' | '\t' | '\r' | '\n' => (None, current + 1),
-        '-' => (Some(minus()), current + 1),
-        '+' => (Some(plus()), current + 1),
-        '*' => (Some(star()), current + 1),
-        '/' => (Some(slash()), current + 1),
-        '(' => (Some(left_paren()), current + 1),
-        ')' => (Some(right_paren()), current + 1),
+        ' ' | '\t' | '\r' | '\n' => Ok((None, current + 1)),
+        '-' => Ok((Some(minus()), current + 1)),
+        '+' => Ok((Some(plus()), current + 1)),
+        '*' => Ok((Some(star()), current + 1)),
+        '/' => Ok((Some(slash()), current + 1)),
+        '(' => Ok((Some(left_paren()), current + 1)),
+        ')' => Ok((Some(right_paren()), current + 1)),
         other => {
             if other.is_numeric() {
-                return scan_number(input, current);
+                return Ok(scan_number(input, current));
             }
 
             log_lexer_error(input, current, other);
 
-            panic!();
+            return Err(Error::new(ErrorKind::Other, "lexer error"));
         }
     }
 }
@@ -145,7 +156,7 @@ mod tests {
     #[test]
     fn scan_next_token_number() {
         let input = vec!['2', '3', '7'];
-        let (_token, end) = super::scan_next_token(&input, 0);
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
 
         assert!(_token.is_some());
         let token = _token.unwrap();
@@ -157,7 +168,7 @@ mod tests {
     #[test]
     fn scan_next_token_minus() {
         let input = vec!['-'];
-        let (_token, end) = super::scan_next_token(&input, 0);
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
 
         assert!(_token.is_some());
         let token = _token.unwrap();
@@ -169,7 +180,7 @@ mod tests {
     #[test]
     fn scan_next_token_plus() {
         let input = vec!['+'];
-        let (_token, end) = super::scan_next_token(&input, 0);
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
 
         assert!(_token.is_some());
         let token = _token.unwrap();
@@ -181,7 +192,7 @@ mod tests {
     #[test]
     fn scan_next_token_star() {
         let input = vec!['*'];
-        let (_token, end) = super::scan_next_token(&input, 0);
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
 
         assert!(_token.is_some());
         let token = _token.unwrap();
@@ -193,7 +204,7 @@ mod tests {
     #[test]
     fn scan_next_token_slash() {
         let input = vec!['/'];
-        let (_token, end) = super::scan_next_token(&input, 0);
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
 
         assert!(_token.is_some());
         let token = _token.unwrap();
@@ -205,7 +216,7 @@ mod tests {
     #[test]
     fn scan_next_token_left_paren() {
         let input = vec!['('];
-        let (_token, end) = super::scan_next_token(&input, 0);
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
 
         assert!(_token.is_some());
         let token = _token.unwrap();
@@ -217,7 +228,7 @@ mod tests {
     #[test]
     fn scan_next_token_right_paren() {
         let input = vec![')'];
-        let (_token, end) = super::scan_next_token(&input, 0);
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
 
         assert!(_token.is_some());
         let token = _token.unwrap();
@@ -228,7 +239,7 @@ mod tests {
 
     #[test]
     fn parse_into_tokens_math_expr() {
-        let tokens = super::parse_into_tokens("2-1+3*4/5");
+        let tokens = super::parse_into_tokens("2-1+3*4/5").unwrap();
 
         assert_eq!(tokens.len(), 9);
         assert_eq!(tokens[0].lexeme, "2");
@@ -258,7 +269,7 @@ mod tests {
     #[test_case(" 4- 1")]
     #[test_case(" 5 - 1")]
     fn parse_into_tokens_skip_insignificant_symbols(input: &str) {
-        let tokens = super::parse_into_tokens(input);
+        let tokens = super::parse_into_tokens(input).unwrap();
 
         assert_eq!(tokens.len(), 3);
         assert_eq!(tokens[0].token_type, TokenType::Number);

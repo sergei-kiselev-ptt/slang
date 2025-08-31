@@ -1,5 +1,6 @@
 mod lexer;
 mod parser;
+mod repl;
 
 use std::env;
 use std::fs::read_to_string;
@@ -8,7 +9,8 @@ use std::process::exit;
 
 use lexer::parse_into_tokens;
 use log::{debug, error, info};
-use parser::parse;
+use parser::Parser;
+use repl::run_repl;
 use simple_logger::SimpleLogger;
 use time::macros::format_description;
 
@@ -21,6 +23,11 @@ fn main() {
 
     let args = env::args().collect::<Vec<String>>();
     debug!("Args: [{:?}]", &args);
+
+    if args.contains(&"--repl".to_string()) {
+        run_repl();
+        exit(0);
+    }
 
     let filename = &args[1];
 
@@ -44,8 +51,9 @@ fn process_file(file_path: &str) -> Result<(), Error> {
         content.as_ref().unwrap()
     );
     let content_str = &content.unwrap();
-    let tokens = parse_into_tokens(content_str);
-    let expr = parse(tokens);
+    let tokens = parse_into_tokens(content_str)?;
+    let mut parser = Parser::new(tokens);
+    let expr = parser.parse();
     info!(
         "Expression {}; parsed: {}; result={}",
         content_str.trim(),
