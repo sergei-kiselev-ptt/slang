@@ -15,6 +15,7 @@ pub enum TokenType {
 
     // Literals
     Number,
+    Identifier,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -60,6 +61,10 @@ fn scan_next_token(input: &Vec<char>, current: usize) -> Result<(Option<Token>, 
         '(' => Ok((Some(left_paren()), current + 1)),
         ')' => Ok((Some(right_paren()), current + 1)),
         other => {
+            if let (Some(identifier), current) = scan_identifier(input, current) {
+                return Ok((Some(identifier), current));
+            }
+
             if other.is_numeric() {
                 return Ok(scan_number(input, current));
             }
@@ -118,9 +123,34 @@ fn right_paren() -> Token {
     }
 }
 
+fn is_valid_identifier_character(char: char) -> bool {
+    char.is_alphabetic() || char.is_numeric() || char == '_'
+}
+
+fn scan_identifier(input: &[char], start: usize) -> (Option<Token>, usize) {
+    let mut current = start;
+    let mut acc = String::with_capacity(16);
+
+    if !(input[current].is_alphabetic() || input[current] == '_') {
+        return (None, current);
+    }
+
+    while current < input.len() {
+        if is_valid_identifier_character(input[current]) {
+            acc.push(input[current]);
+            current += 1;
+            continue;
+        }
+
+        break;
+    }
+
+    (Some(identifier(acc)), current)
+}
+
 fn scan_number(input: &[char], start: usize) -> (Option<Token>, usize) {
     let mut current = start;
-    let mut acc = String::with_capacity(input.len());
+    let mut acc = String::with_capacity(16);
     while current < input.len() {
         if input[current].is_numeric() {
             acc.push(input[current]);
@@ -137,6 +167,13 @@ fn scan_number(input: &[char], start: usize) -> (Option<Token>, usize) {
 fn number(acc: String) -> Token {
     Token {
         token_type: TokenType::Number,
+        lexeme: acc,
+    }
+}
+
+fn identifier(acc: String) -> Token {
+    Token {
+        token_type: TokenType::Identifier,
         lexeme: acc,
     }
 }
@@ -235,6 +272,32 @@ mod tests {
         assert_eq!(end, 1);
         assert_eq!(token.lexeme, ")");
         assert_eq!(token.token_type, TokenType::RightParen);
+    }
+
+    #[test_case("abc")]
+    #[test_case("ab1")]
+    #[test_case("a1b")]
+    #[test_case("a_b")]
+    #[test_case("_ab")]
+    #[test_case("_1av_")]
+    fn scan_next_token_identifier(input_str: &str) {
+        let input = input_str.chars().collect();
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
+
+        assert!(_token.is_some());
+        let token = _token.unwrap();
+        assert_eq!(end, input_str.len());
+        assert_eq!(token.lexeme, input_str);
+        assert_eq!(token.token_type, TokenType::Identifier);
+    }
+
+    #[test]
+    fn scan_next_token_invalid_identifier() {
+        let input = vec!['?', 'b', 'c', '_'];
+        let (scan_res, end) = super::scan_identifier(&input, 0);
+
+        assert!(scan_res.is_none());
+        assert_eq!(end, 0);
     }
 
     #[test]
