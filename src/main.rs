@@ -58,7 +58,7 @@ fn process_file(file_path: &str) -> Result<(), Error> {
         "Expression {}; parsed: {}; result={}",
         content_str.trim(),
         expr.print(),
-        expr.eval()
+        expr.eval_no_env().print()
     );
     return Ok(());
 }

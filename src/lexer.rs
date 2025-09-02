@@ -12,6 +12,7 @@ pub enum TokenType {
     Plus,
     Star,
     Slash,
+    Equal,
 
     // Literals
     Number,
@@ -60,6 +61,7 @@ fn scan_next_token(input: &Vec<char>, current: usize) -> Result<(Option<Token>, 
         '/' => Ok((Some(slash()), current + 1)),
         '(' => Ok((Some(left_paren()), current + 1)),
         ')' => Ok((Some(right_paren()), current + 1)),
+        '=' => Ok((Some(equal()), current + 1)),
         other => {
             if let (Some(identifier), current) = scan_identifier(input, current) {
                 return Ok((Some(identifier), current));
@@ -120,6 +122,13 @@ fn right_paren() -> Token {
     Token {
         token_type: TokenType::RightParen,
         lexeme: ")".to_string(),
+    }
+}
+
+fn equal() -> Token {
+    Token {
+        token_type: TokenType::Equal,
+        lexeme: "=".to_string(),
     }
 }
 

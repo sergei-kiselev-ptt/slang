@@ -23,6 +23,13 @@ pub enum Expr {
         operator: Token,
         right: Box<Expr>,
     },
+    Variable {
+        name: Token,
+    },
+    Assign {
+        name: Token,
+        value: Box<Expr>,
+    },
 }
 
 #[derive(Debug)]
@@ -50,8 +57,24 @@ impl Parser {
     }
 
     fn parse_expr(&mut self) -> Expr {
-        debug!("Parsing expression, lexeme is {}", self.current().lexeme);
+        debug!("Parsing assignment, lexeme is {}", self.current().lexeme);
+        self.parse_assignment()
+    }
+
+    fn parse_assignment(&mut self) -> Expr {
+        debug!("Parsing assignment, lexeme is {}", self.current().lexeme);
         let mut expr = self.parse_term();
+
+        if self.match_token(&[TokenType::Equal]) {
+            let _ = self.previous();
+            if let Expr::Variable { name } = expr {
+                let value = self.parse_assignment();
+                return Expr::Assign {
+                    name,
+                    value: Box::new(value),
+                };
+            }
+        }
 
         while self.match_token(&[TokenType::Plus, TokenType::Minus]) {
             let operator = self.previous().clone();
@@ -121,6 +144,13 @@ impl Parser {
             debug!("Processed parenthesis");
             return expr;
         }
+
+        if self.match_token(&[TokenType::Identifier]) {
+            let identifier_token = self.previous();
+            return Expr::Variable {
+                name: identifier_token.clone(),
+            };
+        }
         panic!("Only NUMBER can be a primary, found {:?}", self.current());
     }
 
@@ -168,37 +198,8 @@ impl Expr {
                 operator,
                 right,
             } => format!("({} {} {})", operator.lexeme, left.print(), right.print()),
-        }
-    }
-
-    pub fn eval(&self) -> f64 {
-        match self {
-            Expr::Literal(literal_value) => match literal_value {
-                LiteralValue::Number(num) => *num,
-                LiteralValue::String(_) => panic!("Can't process strings atm"),
-            },
-            Expr::Unary { operator, right } => match operator.token_type {
-                TokenType::Minus => -right.eval(),
-                TokenType::Plus => right.eval(),
-                other => {
-                    error!("Can't evaluate unary {:?}", other);
-                    panic!();
-                }
-            },
-            Expr::Binary {
-                left,
-                operator,
-                right,
-            } => match operator.token_type {
-                TokenType::Minus => left.eval() - right.eval(),
-                TokenType::Plus => left.eval() + right.eval(),
-                TokenType::Star => left.eval() * right.eval(),
-                TokenType::Slash => left.eval() / right.eval(),
-                other => {
-                    error!("Can't evaluate binary {:?}", other);
-                    panic!();
-                }
-            },
+            Expr::Variable { name } => name.lexeme.clone(),
+            Expr::Assign { name, value } => format!("({} {} {})", "=", name.lexeme, value.print()),
         }
     }
 }
