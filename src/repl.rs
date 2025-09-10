@@ -21,6 +21,7 @@ pub fn run_repl() {
             .read_line(&mut buffer)
             .expect("Something went wrong");
         let tokens = parse_into_tokens(&buffer);
+
         if tokens.is_err() {
             println!("Can't parse the expression: {}", tokens.err().unwrap());
             continue;
@@ -42,11 +43,15 @@ impl Expr {
             Expr::Literal(literal_value) => match literal_value {
                 LiteralValue::Number(num) => Value::Number(*num),
                 LiteralValue::String(_) => panic!("Can't process strings atm"),
+                LiteralValue::Bool(b) => Value::Bool(*b),
             },
             Expr::Unary { operator, right } => match operator.token_type {
                 TokenType::Minus => match right.eval(env) {
                     Value::Number(num) => Value::Number(-num),
                     e @ Value::Error(_) => e,
+                    Value::Bool(_) => {
+                        Value::Error(format!("Can't apply minus to boolean expression"))
+                    }
                 },
                 TokenType::Plus => right.eval(env),
                 other => Value::Error(format!("Can't evaluate unary {:?}", other)),
@@ -110,7 +115,19 @@ impl Expr {
                         Value::Number(a / b)
                     }
                 }
+                TokenType::Greater => Value::Bool(a > b),
+                TokenType::GreaterEqual => Value::Bool(a >= b),
+                TokenType::Less => Value::Bool(a < b),
+                TokenType::LessEqual => Value::Bool(a <= b),
+                TokenType::EqualEqual => Value::Bool(a == b),
+                TokenType::BangEqual => Value::Bool(a != b),
                 other => Value::Error(format!("Unsupported binary operator: {:?}", other)),
+            },
+
+            (Value::Bool(a), Value::Bool(b)) => match tt {
+                TokenType::EqualEqual => Value::Bool(a == b),
+                TokenType::BangEqual => Value::Bool(a != b),
+                other => Value::Error(format!("Cannot apply {:?} to boolean values", other)),
             },
 
             (left_val, right_val) => Value::Error(format!(
@@ -144,7 +161,7 @@ impl Environment {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Number(f64),
-    // Bool(bool),
+    Bool(bool),
     // String(String),
     Error(String),
 }
@@ -154,6 +171,7 @@ impl Value {
         match self {
             Value::Number(num) => num.to_string(),
             Value::Error(msg) => msg.clone(),
+            Value::Bool(bool) => bool.to_string(),
         }
     }
 }

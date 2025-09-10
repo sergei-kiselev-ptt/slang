@@ -14,9 +14,19 @@ pub enum TokenType {
     Slash,
     Equal,
 
+    // Comparison
+    EqualEqual,
+    BangEqual,
+    Greater,
+    GreaterEqual,
+    Less,
+    LessEqual,
+
     // Literals
     Number,
     Identifier,
+    True,
+    False,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -61,8 +71,57 @@ fn scan_next_token(input: &Vec<char>, current: usize) -> Result<(Option<Token>, 
         '/' => Ok((Some(slash()), current + 1)),
         '(' => Ok((Some(left_paren()), current + 1)),
         ')' => Ok((Some(right_paren()), current + 1)),
-        '=' => Ok((Some(equal()), current + 1)),
+        '=' => {
+            if current + 1 == input.len() {
+                return Ok((Some(equal()), current + 1));
+            }
+
+            if input[current + 1] == '=' {
+                return Ok((Some(equal_equal()), current + 2));
+            }
+
+            Ok((Some(equal()), current + 1))
+        }
+        '!' => {
+            if current + 1 == input.len() {
+                panic!("Bang operator is not implemented yet");
+                // return Ok((Some(bang()), current + 1));
+            }
+
+            if input[current + 1] == '=' {
+                return Ok((Some(bang_equal()), current + 2));
+            }
+
+            panic!("Bang operator is not implemented yet");
+            // Ok((Some(bang()), current + 1))
+        }
+        '>' => {
+            if current + 1 == input.len() {
+                return Ok((Some(greater()), current + 1));
+            }
+
+            if input[current + 1] == '=' {
+                return Ok((Some(greater_equal()), current + 2));
+            }
+
+            Ok((Some(greater()), current + 1))
+        }
+        '<' => {
+            if current + 1 == input.len() {
+                return Ok((Some(less()), current + 1));
+            }
+
+            if input[current + 1] == '=' {
+                return Ok((Some(less_equal()), current + 2));
+            }
+
+            Ok((Some(less()), current + 1))
+        }
         other => {
+            if let (Some(bool_literal), current) = scan_boolean_literal(input, current) {
+                return Ok((Some(bool_literal), current));
+            }
+
             if let (Some(identifier), current) = scan_identifier(input, current) {
                 return Ok((Some(identifier), current));
             }
@@ -132,6 +191,48 @@ fn equal() -> Token {
     }
 }
 
+fn equal_equal() -> Token {
+    Token {
+        token_type: TokenType::EqualEqual,
+        lexeme: "==".to_string(),
+    }
+}
+
+fn bang_equal() -> Token {
+    Token {
+        token_type: TokenType::BangEqual,
+        lexeme: "!=".to_string(),
+    }
+}
+
+fn greater() -> Token {
+    Token {
+        token_type: TokenType::Greater,
+        lexeme: ">".to_string(),
+    }
+}
+
+fn greater_equal() -> Token {
+    Token {
+        token_type: TokenType::GreaterEqual,
+        lexeme: ">=".to_string(),
+    }
+}
+
+fn less() -> Token {
+    Token {
+        token_type: TokenType::Less,
+        lexeme: "<".to_string(),
+    }
+}
+
+fn less_equal() -> Token {
+    Token {
+        token_type: TokenType::LessEqual,
+        lexeme: "<=".to_string(),
+    }
+}
+
 fn is_valid_identifier_character(char: char) -> bool {
     char.is_alphabetic() || char.is_numeric() || char == '_'
 }
@@ -157,6 +258,32 @@ fn scan_identifier(input: &[char], start: usize) -> (Option<Token>, usize) {
     (Some(identifier(acc)), current)
 }
 
+fn scan_boolean_literal(input: &[char], start: usize) -> (Option<Token>, usize) {
+    let slice = &input[start..];
+    if slice.len() < 4 {
+        return (None, 0);
+    }
+
+    let mut checked_size = 4;
+
+    if slice.starts_with(&['t', 'r', 'u', 'e'])
+        && (slice.len() == checked_size || [' ', '\n', '\t', '\r'].contains(&slice[checked_size]))
+    {
+        return (Some(true_l()), start + checked_size);
+    }
+
+    checked_size = 5;
+
+    if slice.len() >= checked_size
+        && slice.starts_with(&['f', 'a', 'l', 's', 'e'])
+        && (slice.len() == checked_size || [' ', '\n', '\t', '\r'].contains(&slice[checked_size]))
+    {
+        return (Some(false_l()), start + checked_size);
+    }
+
+    (None, 0)
+}
+
 fn scan_number(input: &[char], start: usize) -> (Option<Token>, usize) {
     let mut current = start;
     let mut acc = String::with_capacity(16);
@@ -171,6 +298,20 @@ fn scan_number(input: &[char], start: usize) -> (Option<Token>, usize) {
     }
 
     (Some(number(acc)), current)
+}
+
+fn true_l() -> Token {
+    Token {
+        token_type: TokenType::True,
+        lexeme: "true".to_string(),
+    }
+}
+
+fn false_l() -> Token {
+    Token {
+        token_type: TokenType::False,
+        lexeme: "false".to_string(),
+    }
 }
 
 fn number(acc: String) -> Token {
@@ -257,6 +398,114 @@ mod tests {
         assert_eq!(end, 1);
         assert_eq!(token.lexeme, "/");
         assert_eq!(token.token_type, TokenType::Slash);
+    }
+
+    #[test]
+    fn scan_next_token_equal() {
+        let input = vec!['='];
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
+
+        assert!(_token.is_some());
+        let token = _token.unwrap();
+        assert_eq!(end, 1);
+        assert_eq!(token.lexeme, "=");
+        assert_eq!(token.token_type, TokenType::Equal);
+    }
+
+    #[test]
+    fn scan_next_token_equal_equal() {
+        let input = vec!['=', '='];
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
+
+        assert!(_token.is_some());
+        let token = _token.unwrap();
+        assert_eq!(end, 2);
+        assert_eq!(token.lexeme, "==");
+        assert_eq!(token.token_type, TokenType::EqualEqual);
+    }
+
+    #[test]
+    fn scan_next_token_bang_equal() {
+        let input = vec!['!', '='];
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
+
+        assert!(_token.is_some());
+        let token = _token.unwrap();
+        assert_eq!(end, 2);
+        assert_eq!(token.lexeme, "!=");
+        assert_eq!(token.token_type, TokenType::BangEqual);
+    }
+
+    #[test]
+    fn scan_next_token_greater() {
+        let input = vec!['>'];
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
+
+        assert!(_token.is_some());
+        let token = _token.unwrap();
+        assert_eq!(end, 1);
+        assert_eq!(token.lexeme, ">");
+        assert_eq!(token.token_type, TokenType::Greater);
+    }
+
+    #[test]
+    fn scan_next_token_greater_equal() {
+        let input = vec!['>', '='];
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
+
+        assert!(_token.is_some());
+        let token = _token.unwrap();
+        assert_eq!(end, 2);
+        assert_eq!(token.lexeme, ">=");
+        assert_eq!(token.token_type, TokenType::GreaterEqual);
+    }
+
+    #[test]
+    fn scan_next_token_less() {
+        let input = vec!['<'];
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
+
+        assert!(_token.is_some());
+        let token = _token.unwrap();
+        assert_eq!(end, 1);
+        assert_eq!(token.lexeme, "<");
+        assert_eq!(token.token_type, TokenType::Less);
+    }
+
+    #[test]
+    fn scan_next_token_less_equal() {
+        let input = vec!['<', '='];
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
+
+        assert!(_token.is_some());
+        let token = _token.unwrap();
+        assert_eq!(end, 2);
+        assert_eq!(token.lexeme, "<=");
+        assert_eq!(token.token_type, TokenType::LessEqual);
+    }
+
+    #[test]
+    fn scan_next_token_true() {
+        let input = vec!['t', 'r', 'u', 'e'];
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
+
+        assert!(_token.is_some());
+        let token = _token.unwrap();
+        assert_eq!(end, 4);
+        assert_eq!(token.lexeme, "true");
+        assert_eq!(token.token_type, TokenType::True);
+    }
+
+    #[test]
+    fn scan_next_token_false() {
+        let input = vec!['f', 'a', 'l', 's', 'e'];
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
+
+        assert!(_token.is_some());
+        let token = _token.unwrap();
+        assert_eq!(end, 5);
+        assert_eq!(token.lexeme, "false");
+        assert_eq!(token.token_type, TokenType::False);
     }
 
     #[test]

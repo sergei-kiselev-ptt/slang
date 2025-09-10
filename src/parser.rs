@@ -36,6 +36,7 @@ pub enum Expr {
 pub enum LiteralValue {
     Number(f64),
     String(String),
+    Bool(bool),
 }
 
 impl Parser {
@@ -63,7 +64,7 @@ impl Parser {
 
     fn parse_assignment(&mut self) -> Expr {
         debug!("Parsing assignment, lexeme is {}", self.current().lexeme);
-        let mut expr = self.parse_term();
+        let mut expr = self.parse_equality();
 
         if self.match_token(&[TokenType::Equal]) {
             let _ = self.previous();
@@ -84,6 +85,45 @@ impl Parser {
                 operator,
                 right: Box::new(right),
             };
+        }
+
+        expr
+    }
+
+    fn parse_equality(&mut self) -> Expr {
+        let mut expr = self.parse_comparison();
+
+        while self.match_token(&[TokenType::EqualEqual, TokenType::BangEqual]) {
+            let operator = self.previous().clone();
+            let right = self.parse_comparison();
+
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right),
+            }
+        }
+
+        expr
+    }
+
+    fn parse_comparison(&mut self) -> Expr {
+        let mut expr = self.parse_term();
+
+        while self.match_token(&[
+            TokenType::Greater,
+            TokenType::GreaterEqual,
+            TokenType::Less,
+            TokenType::LessEqual,
+        ]) {
+            let operator = self.previous().clone();
+            let right = self.parse_term();
+
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right),
+            }
         }
 
         expr
@@ -145,6 +185,14 @@ impl Parser {
             return expr;
         }
 
+        if self.match_token(&[TokenType::True]) {
+            return Expr::Literal(LiteralValue::Bool(true));
+        }
+
+        if self.match_token(&[TokenType::False]) {
+            return Expr::Literal(LiteralValue::Bool(false));
+        }
+
         if self.match_token(&[TokenType::Identifier]) {
             let identifier_token = self.previous();
             return Expr::Variable {
@@ -191,6 +239,7 @@ impl Expr {
             Expr::Literal(val) => match val {
                 LiteralValue::Number(n) => n.to_string(),
                 LiteralValue::String(s) => s.clone(),
+                LiteralValue::Bool(b) => b.to_string(),
             },
             Expr::Unary { operator, right } => format!("({} {})", operator.lexeme, right.print()),
             Expr::Binary {
