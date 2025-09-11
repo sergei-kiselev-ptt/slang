@@ -54,6 +54,13 @@ impl Expr {
                     }
                 },
                 TokenType::Plus => right.eval(env),
+                TokenType::Bang => match right.eval(env) {
+                    Value::Bool(b) => Value::Bool(!b),
+                    other => Value::Error(format!(
+                        "Can't apply logical not operator `!`, to non boolean values: {:?}",
+                        other
+                    )),
+                },
                 other => Value::Error(format!("Can't evaluate unary {:?}", other)),
             },
             Expr::Binary {
@@ -61,7 +68,14 @@ impl Expr {
                 operator,
                 right,
             } => Self::eval_binary(operator.token_type.clone(), left, right, env),
-            Expr::Variable { name } => env.get(&name.lexeme).unwrap().clone(),
+            Expr::Variable { name } => env
+                .get(&name.lexeme)
+                .or(Some(&Value::Error(format!(
+                    "No variable named {}",
+                    &name.lexeme
+                ))))
+                .unwrap()
+                .clone(),
             Expr::Assign { name, value } => {
                 let val = value.eval(env);
                 env.set(name.lexeme.clone(), val.clone());
@@ -127,6 +141,8 @@ impl Expr {
             (Value::Bool(a), Value::Bool(b)) => match tt {
                 TokenType::EqualEqual => Value::Bool(a == b),
                 TokenType::BangEqual => Value::Bool(a != b),
+                TokenType::LogicalOr => Value::Bool(a || b),
+                TokenType::LogicalAnd => Value::Bool(a && b),
                 other => Value::Error(format!("Cannot apply {:?} to boolean values", other)),
             },
 

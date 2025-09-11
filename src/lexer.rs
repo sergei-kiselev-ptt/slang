@@ -22,6 +22,11 @@ pub enum TokenType {
     Less,
     LessEqual,
 
+    // Logical operators
+    LogicalOr,
+    LogicalAnd,
+    Bang,
+
     // Literals
     Number,
     Identifier,
@@ -84,16 +89,14 @@ fn scan_next_token(input: &Vec<char>, current: usize) -> Result<(Option<Token>, 
         }
         '!' => {
             if current + 1 == input.len() {
-                panic!("Bang operator is not implemented yet");
-                // return Ok((Some(bang()), current + 1));
+                return Ok((Some(bang()), current + 1));
             }
 
             if input[current + 1] == '=' {
                 return Ok((Some(bang_equal()), current + 2));
             }
 
-            panic!("Bang operator is not implemented yet");
-            // Ok((Some(bang()), current + 1))
+            Ok((Some(bang()), current + 1))
         }
         '>' => {
             if current + 1 == input.len() {
@@ -116,6 +119,32 @@ fn scan_next_token(input: &Vec<char>, current: usize) -> Result<(Option<Token>, 
             }
 
             Ok((Some(less()), current + 1))
+        }
+        '|' => {
+            if current + 1 == input.len() {
+                panic!("Pipe operator is not supported yet");
+                // return Ok((Some(pipe()), current + 1));
+            }
+
+            if input[current + 1] == '|' {
+                return Ok((Some(logical_or()), current + 2));
+            }
+
+            panic!("Pipe operator is not supported yet");
+            // Ok((Some(pipe()), current + 1))
+        }
+        '&' => {
+            if current + 1 == input.len() {
+                panic!("Sinlge & operator is not supported yet");
+                // return Ok((Some(ampersand()), current + 1));
+            }
+
+            if input[current + 1] == '&' {
+                return Ok((Some(logical_and()), current + 2));
+            }
+
+            panic!("Single & operator is not supported yet");
+            // Ok((Some(ampersand()), current + 1))
         }
         other => {
             if let (Some(bool_literal), current) = scan_boolean_literal(input, current) {
@@ -198,10 +227,31 @@ fn equal_equal() -> Token {
     }
 }
 
+fn bang() -> Token {
+    Token {
+        token_type: TokenType::Bang,
+        lexeme: "!".to_string(),
+    }
+}
+
 fn bang_equal() -> Token {
     Token {
         token_type: TokenType::BangEqual,
         lexeme: "!=".to_string(),
+    }
+}
+
+fn logical_and() -> Token {
+    Token {
+        token_type: TokenType::LogicalAnd,
+        lexeme: "&&".to_string(),
+    }
+}
+
+fn logical_or() -> Token {
+    Token {
+        token_type: TokenType::LogicalOr,
+        lexeme: "||".to_string(),
     }
 }
 
@@ -425,6 +475,18 @@ mod tests {
     }
 
     #[test]
+    fn scan_next_token_bang() {
+        let input = vec!['!'];
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
+
+        assert!(_token.is_some());
+        let token = _token.unwrap();
+        assert_eq!(end, 1);
+        assert_eq!(token.lexeme, "!");
+        assert_eq!(token.token_type, TokenType::Bang);
+    }
+
+    #[test]
     fn scan_next_token_bang_equal() {
         let input = vec!['!', '='];
         let (_token, end) = super::scan_next_token(&input, 0).unwrap();
@@ -434,6 +496,30 @@ mod tests {
         assert_eq!(end, 2);
         assert_eq!(token.lexeme, "!=");
         assert_eq!(token.token_type, TokenType::BangEqual);
+    }
+
+    #[test]
+    fn scan_next_token_logical_and() {
+        let input = vec!['&', '&'];
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
+
+        assert!(_token.is_some());
+        let token = _token.unwrap();
+        assert_eq!(end, 2);
+        assert_eq!(token.lexeme, "&&");
+        assert_eq!(token.token_type, TokenType::LogicalAnd);
+    }
+
+    #[test]
+    fn scan_next_token_logical_or() {
+        let input = vec!['|', '|'];
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
+
+        assert!(_token.is_some());
+        let token = _token.unwrap();
+        assert_eq!(end, 2);
+        assert_eq!(token.lexeme, "||");
+        assert_eq!(token.token_type, TokenType::LogicalOr);
     }
 
     #[test]

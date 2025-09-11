@@ -64,7 +64,7 @@ impl Parser {
 
     fn parse_assignment(&mut self) -> Expr {
         debug!("Parsing assignment, lexeme is {}", self.current().lexeme);
-        let mut expr = self.parse_equality();
+        let mut expr = self.parse_logical_or();
 
         if self.match_token(&[TokenType::Equal]) {
             let _ = self.previous();
@@ -90,7 +90,44 @@ impl Parser {
         expr
     }
 
+    fn parse_logical_or(&mut self) -> Expr {
+        debug!("Parsing logical or, lexeme is {}", self.current().lexeme);
+        let mut expr = self.parse_logical_and();
+
+        while self.match_token(&[TokenType::LogicalOr]) {
+            let operator = self.previous().clone();
+            let right = self.parse_logical_and();
+
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right),
+            }
+        }
+
+        expr
+    }
+
+    fn parse_logical_and(&mut self) -> Expr {
+        debug!("Parsing logical and, lexeme is {}", self.current().lexeme);
+        let mut expr = self.parse_equality();
+
+        while self.match_token(&[TokenType::LogicalAnd]) {
+            let operator = self.previous().clone();
+            let right = self.parse_equality();
+
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right),
+            }
+        }
+
+        expr
+    }
+
     fn parse_equality(&mut self) -> Expr {
+        debug!("Parsing equality, lexeme is {}", self.current().lexeme);
         let mut expr = self.parse_comparison();
 
         while self.match_token(&[TokenType::EqualEqual, TokenType::BangEqual]) {
@@ -154,7 +191,7 @@ impl Parser {
 
     fn parse_unary(&mut self) -> Expr {
         debug!("Parsing factor, lexeme is {}", self.current().lexeme);
-        if self.match_token(&[TokenType::Plus, TokenType::Minus]) {
+        if self.match_token(&[TokenType::Plus, TokenType::Minus, TokenType::Bang]) {
             let operator = self.previous().clone();
             let right = self.parse_unary();
             return Expr::Unary {
