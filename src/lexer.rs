@@ -311,7 +311,21 @@ fn scan_identifier(input: &[char], start: usize) -> (Option<Token>, usize) {
 fn is_word_boundary(c: char) -> bool {
     matches!(
         c,
-        ' ' | '\n' | '\t' | '\r' | ')' | '(' | '+' | '-' | '*' | '/' | '=' | '!' | '<' | '>' | '&' | '|'
+        ' ' | '\n'
+            | '\t'
+            | '\r'
+            | ')'
+            | '('
+            | '+'
+            | '-'
+            | '*'
+            | '/'
+            | '='
+            | '!'
+            | '<'
+            | '>'
+            | '&'
+            | '|'
     )
 }
 

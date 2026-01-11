@@ -5,14 +5,15 @@ use std::{
 };
 
 use crate::{
+    jit::{JIT, JitValue},
     lexer::{TokenType, parse_into_tokens},
     parser::{Expr, LiteralValue, Parser},
 };
 
 pub fn run_repl() {
     let mut buffer = String::new();
-    println!("Welcome to the slang REPL");
-    let mut env = Environment::new();
+    println!("Welcome to the slang REPL (JIT-compiled)");
+    let mut jit = JIT::new();
     loop {
         buffer.clear();
         print!("> ");
@@ -20,16 +21,32 @@ pub fn run_repl() {
         stdin()
             .read_line(&mut buffer)
             .expect("Something went wrong");
-        let tokens = parse_into_tokens(&buffer);
 
+        let trimmed = buffer.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let tokens = parse_into_tokens(trimmed);
         if tokens.is_err() {
             println!("Can't parse the expression: {}", tokens.err().unwrap());
             continue;
         }
+
         let mut parser = Parser::new(tokens.unwrap());
         let expr = parser.parse();
 
-        println!("{}", expr.eval(&mut env).print());
+        match jit.eval(&expr) {
+            Ok(value) => println!("{}", format_jit_value(&value)),
+            Err(err) => println!("Error: {}", err),
+        }
+    }
+}
+
+fn format_jit_value(value: &JitValue) -> String {
+    match value {
+        JitValue::Number(n) => n.to_string(),
+        JitValue::Bool(b) => b.to_string(),
     }
 }
 

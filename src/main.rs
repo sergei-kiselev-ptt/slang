@@ -1,3 +1,4 @@
+mod jit;
 mod lexer;
 mod parser;
 mod repl;
@@ -18,6 +19,7 @@ fn main() {
     SimpleLogger::new()
         .with_timestamp_format(format_description!("[hour]:[minute]:[second]"))
         .with_level(log::LevelFilter::Info)
+        .with_module_level("cranelift_jit", log::LevelFilter::Warn)
         .init()
         .unwrap();
 
