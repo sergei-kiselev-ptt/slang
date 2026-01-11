@@ -308,6 +308,13 @@ fn scan_identifier(input: &[char], start: usize) -> (Option<Token>, usize) {
     (Some(identifier(acc)), current)
 }
 
+fn is_word_boundary(c: char) -> bool {
+    matches!(
+        c,
+        ' ' | '\n' | '\t' | '\r' | ')' | '(' | '+' | '-' | '*' | '/' | '=' | '!' | '<' | '>' | '&' | '|'
+    )
+}
+
 fn scan_boolean_literal(input: &[char], start: usize) -> (Option<Token>, usize) {
     let slice = &input[start..];
     if slice.len() < 4 {
@@ -317,7 +324,7 @@ fn scan_boolean_literal(input: &[char], start: usize) -> (Option<Token>, usize) 
     let mut checked_size = 4;
 
     if slice.starts_with(&['t', 'r', 'u', 'e'])
-        && (slice.len() == checked_size || [' ', '\n', '\t', '\r'].contains(&slice[checked_size]))
+        && (slice.len() == checked_size || is_word_boundary(slice[checked_size]))
     {
         return (Some(true_l()), start + checked_size);
     }
@@ -326,7 +333,7 @@ fn scan_boolean_literal(input: &[char], start: usize) -> (Option<Token>, usize) 
 
     if slice.len() >= checked_size
         && slice.starts_with(&['f', 'a', 'l', 's', 'e'])
-        && (slice.len() == checked_size || [' ', '\n', '\t', '\r'].contains(&slice[checked_size]))
+        && (slice.len() == checked_size || is_word_boundary(slice[checked_size]))
     {
         return (Some(false_l()), start + checked_size);
     }
