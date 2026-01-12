@@ -98,6 +98,22 @@ impl Expr {
                 env.set(name.lexeme.clone(), val.clone());
                 val
             }
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                let cond = condition.eval(env);
+                match cond {
+                    Value::Bool(true) => then_branch.eval(env),
+                    Value::Bool(false) => match else_branch {
+                        Some(else_expr) => else_expr.eval(env),
+                        None => Value::Number(0.0), // Default when no else
+                    },
+                    Value::Error(e) => Value::Error(e),
+                    other => Value::Error(format!("if condition must be boolean, got {:?}", other)),
+                }
+            }
         }
     }
 

@@ -8,6 +8,8 @@ pub enum TokenType {
     // Single character tokens
     LeftParen,
     RightParen,
+    LeftBrace,
+    RightBrace,
     Minus,
     Plus,
     Star,
@@ -26,6 +28,10 @@ pub enum TokenType {
     LogicalOr,
     LogicalAnd,
     Bang,
+
+    // Keywords
+    If,
+    Else,
 
     // Literals
     Number,
@@ -76,6 +82,8 @@ fn scan_next_token(input: &Vec<char>, current: usize) -> Result<(Option<Token>, 
         '/' => Ok((Some(slash()), current + 1)),
         '(' => Ok((Some(left_paren()), current + 1)),
         ')' => Ok((Some(right_paren()), current + 1)),
+        '{' => Ok((Some(left_brace()), current + 1)),
+        '}' => Ok((Some(right_brace()), current + 1)),
         '=' => {
             if current + 1 == input.len() {
                 return Ok((Some(equal()), current + 1));
@@ -147,6 +155,10 @@ fn scan_next_token(input: &Vec<char>, current: usize) -> Result<(Option<Token>, 
             // Ok((Some(ampersand()), current + 1))
         }
         other => {
+            if let (Some(keyword), current) = scan_keyword(input, current) {
+                return Ok((Some(keyword), current));
+            }
+
             if let (Some(bool_literal), current) = scan_boolean_literal(input, current) {
                 return Ok((Some(bool_literal), current));
             }
@@ -210,6 +222,34 @@ fn right_paren() -> Token {
     Token {
         token_type: TokenType::RightParen,
         lexeme: ")".to_string(),
+    }
+}
+
+fn left_brace() -> Token {
+    Token {
+        token_type: TokenType::LeftBrace,
+        lexeme: "{".to_string(),
+    }
+}
+
+fn right_brace() -> Token {
+    Token {
+        token_type: TokenType::RightBrace,
+        lexeme: "}".to_string(),
+    }
+}
+
+fn if_kw() -> Token {
+    Token {
+        token_type: TokenType::If,
+        lexeme: "if".to_string(),
+    }
+}
+
+fn else_kw() -> Token {
+    Token {
+        token_type: TokenType::Else,
+        lexeme: "else".to_string(),
     }
 }
 
@@ -316,6 +356,8 @@ fn is_word_boundary(c: char) -> bool {
             | '\r'
             | ')'
             | '('
+            | '{'
+            | '}'
             | '+'
             | '-'
             | '*'
@@ -327,6 +369,28 @@ fn is_word_boundary(c: char) -> bool {
             | '&'
             | '|'
     )
+}
+
+fn scan_keyword(input: &[char], start: usize) -> (Option<Token>, usize) {
+    let slice = &input[start..];
+
+    // Check for "if" (2 chars)
+    if slice.len() >= 2
+        && slice.starts_with(&['i', 'f'])
+        && (slice.len() == 2 || is_word_boundary(slice[2]))
+    {
+        return (Some(if_kw()), start + 2);
+    }
+
+    // Check for "else" (4 chars)
+    if slice.len() >= 4
+        && slice.starts_with(&['e', 'l', 's', 'e'])
+        && (slice.len() == 4 || is_word_boundary(slice[4]))
+    {
+        return (Some(else_kw()), start + 4);
+    }
+
+    (None, 0)
 }
 
 fn scan_boolean_literal(input: &[char], start: usize) -> (Option<Token>, usize) {

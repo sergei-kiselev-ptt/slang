@@ -175,6 +175,24 @@ impl JIT {
             }
 
             Expr::Assign { value, .. } => self.infer_type(value),
+
+            Expr::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                let then_type = self.infer_type(then_branch)?;
+                if let Some(else_expr) = else_branch {
+                    let else_type = self.infer_type(else_expr)?;
+                    if then_type != else_type {
+                        return Err(format!(
+                            "if branches must have same type: then is {:?}, else is {:?}",
+                            then_type, else_type
+                        ));
+                    }
+                }
+                Ok(then_type)
+            }
         }
     }
 }
@@ -329,6 +347,59 @@ fn compile_expr(
                 }
                 _ => Err(format!("Unknown unary operator: {:?}", operator)),
             }
+        }
+
+        Expr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            let (cond_val, cond_type) = compile_expr(condition, builder, ctx)?;
+            if cond_type != ValueType::Bool {
+                // error!("If condition should be a boolean type");
+                return Err(format!(
+                    "Condition should be a boolean type, got {:?}",
+                    cond_type
+                ));
+            }
+
+            let then_block = builder.create_block();
+            let else_block = builder.create_block();
+            let merge_block = builder.create_block();
+
+            builder
+                .ins()
+                .brif(cond_val, then_block, &[], else_block, &[]);
+
+            builder.switch_to_block(then_block);
+            builder.seal_block(then_block);
+            let (then_val, then_type) = compile_expr(then_branch, builder, ctx)?;
+            builder.ins().jump(merge_block, &[then_val]);
+
+            builder.switch_to_block(else_block);
+            builder.seal_block(else_block);
+            let else_val = if let Some(else_expr) = else_branch {
+                let (val, _) = compile_expr(else_expr, builder, ctx)?;
+                val
+            } else {
+                match then_type {
+                    ValueType::Number => builder.ins().f64const(0.0),
+                    ValueType::Bool => builder.ins().iconst(types::I8, 0),
+                }
+            };
+            builder.ins().jump(merge_block, &[else_val]);
+
+            let result_type = match then_type {
+                ValueType::Number => types::F64,
+                ValueType::Bool => types::I8,
+            };
+            builder.append_block_param(merge_block, result_type);
+
+            builder.switch_to_block(merge_block);
+            builder.seal_block(merge_block);
+            let result = builder.block_params(merge_block)[0];
+
+            Ok((result, then_type))
         }
     }
 }
@@ -496,5 +567,103 @@ mod tests {
         eval_with_jit(&mut jit, "b = 3");
         assert_eq!(eval_with_jit(&mut jit, "a > b"), JitValue::Bool(true));
         assert_eq!(eval_with_jit(&mut jit, "a == b"), JitValue::Bool(false));
+    }
+
+    #[test]
+    fn jit_if_true() {
+        assert_eq!(eval("if true { 1 } else { 0 }"), JitValue::Number(1.0));
+    }
+
+    #[test]
+    fn jit_if_false() {
+        assert_eq!(eval("if false { 1 } else { 0 }"), JitValue::Number(0.0));
+    }
+
+    #[test]
+    fn jit_if_with_comparison() {
+        assert_eq!(
+            eval("if 5 > 3 { 100 } else { 200 }"),
+            JitValue::Number(100.0)
+        );
+        assert_eq!(
+            eval("if 5 < 3 { 100 } else { 200 }"),
+            JitValue::Number(200.0)
+        );
+    }
+
+    #[test]
+    fn jit_if_with_variable() {
+        let mut jit = JIT::new();
+        eval_with_jit(&mut jit, "x = 10");
+        assert_eq!(
+            eval_with_jit(&mut jit, "if x > 5 { 1 } else { 0 }"),
+            JitValue::Number(1.0)
+        );
+        assert_eq!(
+            eval_with_jit(&mut jit, "if x < 5 { 1 } else { 0 }"),
+            JitValue::Number(0.0)
+        );
+    }
+
+    #[test]
+    fn jit_if_bool_result() {
+        assert_eq!(
+            eval("if true { true } else { false }"),
+            JitValue::Bool(true)
+        );
+        assert_eq!(
+            eval("if false { true } else { false }"),
+            JitValue::Bool(false)
+        );
+    }
+
+    #[test]
+    fn jit_if_nested() {
+        assert_eq!(
+            eval("if true { if false { 1 } else { 2 } } else { 3 }"),
+            JitValue::Number(2.0)
+        );
+    }
+
+    #[test]
+    fn jit_if_complex_condition() {
+        assert_eq!(
+            eval("if (5 > 3) && (2 < 4) { 100 } else { 200 }"),
+            JitValue::Number(100.0)
+        );
+        assert_eq!(
+            eval("if (5 > 3) && (2 > 4) { 100 } else { 200 }"),
+            JitValue::Number(200.0)
+        );
+    }
+
+    #[test]
+    fn jit_if_no_else_true() {
+        assert_eq!(eval("if true { 42 }"), JitValue::Number(42.0));
+    }
+
+    #[test]
+    fn jit_if_no_else_false() {
+        assert_eq!(eval("if false { 42 }"), JitValue::Number(0.0));
+    }
+
+    #[test]
+    fn jit_if_no_else_with_variable() {
+        let mut jit = JIT::new();
+        eval_with_jit(&mut jit, "x = 10");
+        assert_eq!(
+            eval_with_jit(&mut jit, "if x > 5 { 100 }"),
+            JitValue::Number(100.0)
+        );
+        assert_eq!(
+            eval_with_jit(&mut jit, "if x < 5 { 100 }"),
+            JitValue::Number(0.0)
+        );
+    }
+
+    #[test]
+    fn jit_if_no_else_bool() {
+        assert_eq!(eval("if true { true }"), JitValue::Bool(true));
+        assert_eq!(eval("if false { true }"), JitValue::Bool(false)); // default false
     }
 }

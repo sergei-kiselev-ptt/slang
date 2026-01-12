@@ -30,6 +30,11 @@ pub enum Expr {
         name: Token,
         value: Box<Expr>,
     },
+    If {
+        condition: Box<Expr>,
+        then_branch: Box<Expr>,
+        else_branch: Option<Box<Expr>>,
+    },
 }
 
 #[derive(Debug)]
@@ -222,6 +227,11 @@ impl Parser {
             return expr;
         }
 
+        if self.match_token(&[TokenType::If]) {
+            debug!("Processing if expression...");
+            return self.parse_if();
+        }
+
         if self.match_token(&[TokenType::True]) {
             return Expr::Literal(LiteralValue::Bool(true));
         }
@@ -237,6 +247,50 @@ impl Parser {
             };
         }
         panic!("Only NUMBER can be a primary, found {:?}", self.current());
+    }
+
+    fn parse_if(&mut self) -> Expr {
+        // Parse condition (no braces around it)
+        let condition = self.parse_expr();
+
+        // Expect opening brace for then branch
+        if !self.match_token(&[TokenType::LeftBrace]) {
+            panic!("Expected '{{' after if condition");
+        }
+
+        // Parse then branch expression
+        let then_branch = self.parse_expr();
+
+        // Expect closing brace for then branch
+        if !self.match_token(&[TokenType::RightBrace]) {
+            panic!("Expected '}}' after then branch");
+        }
+
+        // Optional else branch
+        let else_branch = if self.match_token(&[TokenType::Else]) {
+            // Expect opening brace for else branch
+            if !self.match_token(&[TokenType::LeftBrace]) {
+                panic!("Expected '{{' after else");
+            }
+
+            // Parse else branch expression
+            let else_expr = self.parse_expr();
+
+            // Expect closing brace for else branch
+            if !self.match_token(&[TokenType::RightBrace]) {
+                panic!("Expected '}}' after else branch");
+            }
+
+            Some(Box::new(else_expr))
+        } else {
+            None
+        };
+
+        Expr::If {
+            condition: Box::new(condition),
+            then_branch: Box::new(then_branch),
+            else_branch,
+        }
     }
 
     fn previous(&self) -> &Token {
@@ -286,6 +340,19 @@ impl Expr {
             } => format!("({} {} {})", operator.lexeme, left.print(), right.print()),
             Expr::Variable { name } => name.lexeme.clone(),
             Expr::Assign { name, value } => format!("({} {} {})", "=", name.lexeme, value.print()),
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => match else_branch {
+                Some(else_expr) => format!(
+                    "(if {} {{ {} }} else {{ {} }})",
+                    condition.print(),
+                    then_branch.print(),
+                    else_expr.print()
+                ),
+                None => format!("(if {} {{ {} }})", condition.print(), then_branch.print()),
+            },
         }
     }
 }
