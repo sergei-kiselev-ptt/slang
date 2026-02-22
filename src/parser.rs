@@ -325,21 +325,21 @@ impl Parser {
 }
 
 impl Expr {
-    pub fn print(&self) -> String {
+    pub fn as_str(&self) -> String {
         match self {
             Expr::Literal(val) => match val {
                 LiteralValue::Number(n) => n.to_string(),
                 LiteralValue::String(s) => s.clone(),
                 LiteralValue::Bool(b) => b.to_string(),
             },
-            Expr::Unary { operator, right } => format!("({} {})", operator.lexeme, right.print()),
+            Expr::Unary { operator, right } => format!("({} {})", operator.lexeme, right.as_str()),
             Expr::Binary {
                 left,
                 operator,
                 right,
-            } => format!("({} {} {})", operator.lexeme, left.print(), right.print()),
+            } => format!("({} {} {})", operator.lexeme, left.as_str(), right.as_str()),
             Expr::Variable { name } => name.lexeme.clone(),
-            Expr::Assign { name, value } => format!("({} {} {})", "=", name.lexeme, value.print()),
+            Expr::Assign { name, value } => format!("({} {} {})", "=", name.lexeme, value.as_str()),
             Expr::If {
                 condition,
                 then_branch,
@@ -347,11 +347,11 @@ impl Expr {
             } => match else_branch {
                 Some(else_expr) => format!(
                     "(if {} {{ {} }} else {{ {} }})",
-                    condition.print(),
-                    then_branch.print(),
-                    else_expr.print()
+                    condition.as_str(),
+                    then_branch.as_str(),
+                    else_expr.as_str()
                 ),
-                None => format!("(if {} {{ {} }})", condition.print(), then_branch.print()),
+                None => format!("(if {} {{ {} }})", condition.as_str(), then_branch.as_str()),
             },
         }
     }

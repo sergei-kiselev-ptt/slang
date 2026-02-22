@@ -1,0 +1,1321 @@
+<!doctype html>
+<meta name=viewport content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/assets/css/simple.css" type="text/css" />
+
+<title>                 QBE Intermediate Language</title>
+<div class="container">
+<h2>                 QBE Intermediate Language</h2>
+<h3><a id='Table-of-Contents'>Table of Contents</a></h3>
+<ol>
+<li> <a href="#Basic-Concepts">Basic Concepts</a>
+<ul>
+<li> <a href="#Input-Files">Input Files</a>
+<li> <a href="#BNF-Notation">BNF Notation</a>
+<li> <a href="#Sigils">Sigils</a>
+<li> <a href="#Spacing">Spacing</a>
+</ul>
+<li> <a href="#Types">Types</a>
+<ul>
+<li> <a href="#Simple-Types">Simple Types</a>
+<li> <a href="#Subtyping">Subtyping</a>
+</ul>
+<li> <a href="#Constants-and-Vals">Constants and Vals</a>
+<li> <a href="#Linkage">Linkage</a>
+<li> <a href="#Definitions">Definitions</a>
+<ul>
+<li> <a href="#Aggregate-Types">Aggregate Types</a>
+<li> <a href="#Data">Data</a>
+<li> <a href="#Functions">Functions</a>
+</ul>
+<li> <a href="#Control">Control</a>
+<ul>
+<li> <a href="#Blocks">Blocks</a>
+<li> <a href="#Jumps">Jumps</a>
+</ul>
+<li> <a href="#Instructions">Instructions</a>
+<ul>
+<li> <a href="#Arithmetic-and-Bits">Arithmetic and Bits</a>
+<li> <a href="#Memory">Memory</a>
+<li> <a href="#Comparisons">Comparisons</a>
+<li> <a href="#Conversions">Conversions</a>
+<li> <a href="#Cast-and-Copy">Cast and Copy</a>
+<li> <a href="#Call">Call</a>
+<li> <a href="#Variadic">Variadic</a>
+<li> <a href="#Phi">Phi</a>
+</ul>
+<li> <a href="#Instructions-Index">Instructions Index</a>
+</ol>
+<h3><a id='Basic-Concepts'>1. Basic Concepts</a></h3>
+<p>
+The intermediate language (IL) is a higher-level language
+than the machine's assembly language.  It smoothes most
+of the irregularities of the underlying hardware and
+allows an infinite number of temporaries to be used.
+This higher abstraction level lets frontend programmers
+focus on language design issues.
+</p>
+<h4><a id='Input-Files'>Input Files</a></h4>
+<p>
+The intermediate language is provided to QBE as text.
+Usually, one file is generated per each compilation unit from
+the frontend input language.  An IL file is a sequence of
+<a href="#Definitions">Definitions</a> for data, functions, and types.  Once
+processed by QBE, the resulting file can be assembled and
+linked using a standard toolchain (e.g., GNU binutils).
+</p>
+<p>
+Here is a complete "Hello World" IL file which defines a
+function that prints to the screen.  Since the string is
+not a first class object (only the pointer is) it is
+defined outside the function's body.  Comments start with
+a # character and finish with the end of the line.
+</p>
+<pre>
+# Define the string constant.
+data $str = { b "hello world", b 0 }
+
+export function w $main() {
+@start
+        # Call the puts function with $str as argument.
+        %r =w call $puts(l $str)
+        ret 0
+}
+</pre>
+<p>
+If you have read the LLVM language reference, you might
+recognize the example above.  In comparison, QBE makes a
+much lighter use of types and the syntax is terser.
+</p>
+<h4><a id='BNF-Notation'>BNF Notation</a></h4>
+<p>
+The language syntax is vaporously described in the sections
+below using BNF syntax.  The different BNF constructs used
+are listed below.
+</p>
+<ul>
+<li> Keywords are enclosed between quotes;
+<li> <code>... | ...</code> expresses alternatives;
+<li> <code>( ... )</code> groups syntax;
+<li> <code>[ ... ]</code> marks the nested syntax as optional;
+<li> <code>( ... ),</code> designates a comma-separated list of the
+    enclosed syntax;
+<li> <code>...*</code> and <code>...+</code> are used for arbitrary and
+    at-least-once repetition respectively.
+</ul>
+<h4><a id='Sigils'>Sigils</a></h4>
+<p>
+The intermediate language makes heavy use of sigils, all
+user-defined names are prefixed with a sigil.  This is
+to avoid keyword conflicts, and also to quickly spot the
+scope and nature of identifiers.
+</p>
+<ul>
+<li> <code>:</code> is for user-defined <a href="#Aggregate-Types">Aggregate Types</a>
+<li> <code>$</code> is for globals (represented by a pointer)
+<li> <code>%</code> is for function-scope temporaries
+<li> <code>@</code> is for block labels
+</ul>
+<p>
+In this BNF syntax, we use <code>?IDENT</code> to designate an identifier
+starting with the sigil <code>?</code>.
+</p>
+<h4><a id='Spacing'>Spacing</a></h4>
+<pre class="bnf">NL := '\n'+
+</pre>
+<p>
+Individual tokens in IL files must be separated by one or
+more spacing characters.  Both spaces and tabs are recognized
+as spacing characters.  In data and type definitions, newlines
+may also be used as spaces to prevent overly long lines.  When
+exactly one of two consecutive tokens is a symbol (for example
+<code>,</code> or <code>=</code> or <code>{</code>), spacing may be omitted.
+</p>
+<h3><a id='Types'>2. Types</a></h3>
+<h4><a id='Simple-Types'>Simple Types</a></h4>
+<pre class="bnf">BASETY := 'w' | 'l' | 's' | 'd' # Base types
+EXTTY  := BASETY | 'b' | 'h'    # Extended types
+</pre>
+<p>
+The IL makes minimal use of types.  By design, the types
+used are restricted to what is necessary for unambiguous
+compilation to machine code and C interfacing.  Unlike LLVM,
+QBE is not using types as a means to safety; they are only
+here for semantic purposes.
+</p>
+<p>
+The four base types are <code>w</code> (word), <code>l</code> (long), <code>s</code> (single),
+and <code>d</code> (double), they stand respectively for 32-bit and
+64-bit integers, and 32-bit and 64-bit floating-point numbers.
+There are no pointer types available; pointers are typed
+by an integer type sufficiently wide to represent all memory
+addresses (e.g., <code>l</code> on 64-bit architectures).  Temporaries
+in the IL can only have a base type.
+</p>
+<p>
+Extended types contain base types plus <code>b</code> (byte) and <code>h</code>
+(half word), respectively for 8-bit and 16-bit integers.
+They are used in <a href="#Aggregate-Types">Aggregate Types</a> and <a href="#Data">Data</a> definitions.
+</p>
+<p>
+For C interfacing, the IL also provides user-defined aggregate
+types as well as signed and unsigned variants of the sub-word
+extended types.  Read more about these types in the
+<a href="#Aggregate-Types">Aggregate Types</a> and <a href="#Functions">Functions</a> sections.
+</p>
+<h4><a id='Subtyping'>Subtyping</a></h4>
+<p>
+The IL has a minimal subtyping feature, for integer types only.
+Any value of type <code>l</code> can be used in a <code>w</code> context.  In that
+case, only the 32 least significant bits of the word value
+are used.
+</p>
+<p>
+Make note that it is the opposite of the usual subtyping on
+integers (in C, we can safely use an <code>int</code> where a <code>long</code>
+is expected).  A long value cannot be used in word context.
+The rationale is that a word can be signed or unsigned, so
+extending it to a long could be done in two ways, either
+by zero-extension, or by sign-extension.
+</p>
+<h3><a id='Constants-and-Vals'>3. Constants and Vals</a></h3>
+<pre class="bnf">CONST :=
+    ['-'] NUMBER  # Decimal integer
+  | 's_' FP       # Single-precision float
+  | 'd_' FP       # Double-precision float
+  | $IDENT        # Global symbol
+
+DYNCONST :=
+    CONST
+  | 'thread' $IDENT  # Thread-local symbol
+
+VAL :=
+    DYNCONST
+  | %IDENT
+</pre>
+<p>
+Constants come in two kinds: compile-time constants and
+dynamic constants.  Dynamic constants include compile-time
+constants and other symbol variants that are only known at
+program-load time or execution time.  Consequently, dynamic
+constants can only occur in function bodies.
+</p>
+<p>
+The representation of integers is two's complement.
+Floating-point numbers are represented using the
+single-precision and double-precision formats of the
+IEEE 754 standard.
+</p>
+<p>
+Constants specify a sequence of bits and are untyped.
+They are always parsed as 64-bit blobs.  Depending on
+the context surrounding a constant, only some of its
+bits are used.  For example, in the program below, the
+two variables defined have the same value since the first
+operand of the subtraction is a word (32-bit) context.
+</p>
+<pre>
+%x =w sub -1, 0
+%y =w sub 4294967295, 0
+</pre>
+<p>
+Because specifying floating-point constants by their bits
+makes the code less readable, syntactic sugar is provided
+to express them.  Standard scientific notation is prefixed
+with <code>s_</code> and <code>d_</code> for single and double precision numbers
+respectively. Once again, the following example defines twice
+the same double-precision constant.
+</p>
+<pre>
+%x =d add d_0, d_-1
+%y =d add d_0, -4616189618054758400
+</pre>
+<p>
+Global symbols can also be used directly as constants;
+they will be resolved and turned into actual numeric
+constants by the linker.
+</p>
+<p>
+When the <code>thread</code> keyword prefixes a symbol name, the
+symbol's numeric value is resolved at runtime in the
+thread-local storage.
+</p>
+<p>
+Vals are used as arguments in regular, phi, and jump
+instructions within function definitions.  They are
+either constants or function-scope temporaries.
+</p>
+<h3><a id='Linkage'>4. Linkage</a></h3>
+<pre class="bnf">LINKAGE :=
+    'export' [NL]
+  | 'thread' [NL]
+  | 'section' SECNAME [NL]
+  | 'section' SECNAME SECFLAGS [NL]
+
+SECNAME  := '"' .... '"'
+SECFLAGS := '"' .... '"'
+</pre>
+<p>
+Function and data definitions (see below) can specify
+linkage information to be passed to the assembler and
+eventually to the linker.
+</p>
+<p>
+The <code>export</code> linkage flag marks the defined item as
+visible outside the current file's scope.  If absent,
+the symbol can only be referred to locally.  Functions
+compiled by QBE and called from C need to be exported.
+</p>
+<p>
+The <code>thread</code> linkage flag can only qualify data
+definitions.  It mandates that the object defined is
+stored in thread-local storage.  Each time a runtime
+thread starts, the supporting platform runtime is in
+charge of making a new copy of the object for the
+fresh thread.  Objects in thread-local storage must
+be accessed using the <code>thread $IDENT</code> syntax, as
+specified in the <a href="#Constants-and-Vals">Constants and Vals</a> section.
+</p>
+<p>
+A <code>section</code> flag can be specified to tell the linker to
+put the defined item in a certain section.  The use of
+the section flag is platform dependent and we refer the
+user to the documentation of their assembler and linker
+for relevant information.
+</p>
+<pre>
+section ".init_array"
+data $.init.f = { l $f }
+</pre>
+<p>
+The section flag can be used to add function pointers to
+a global initialization list, as depicted above.  Note
+that some platforms provide a BSS section that can be
+used to minimize the footprint of uniformly zeroed data.
+When this section is available, QBE will automatically
+make use of it and no section flag is required.
+</p>
+<p>
+The section and export linkage flags should each appear
+at most once in a definition.  If multiple occurrences
+are present, QBE is free to use any.
+</p>
+<h3><a id='Definitions'>5. Definitions</a></h3>
+<p>
+Definitions are the essential components of an IL file.
+They can define three types of objects: aggregate types,
+data, and functions.  Aggregate types are never exported
+and do not compile to any code.  Data and function
+definitions have file scope and are mutually recursive
+(even across IL files).  Their visibility can be controlled
+using linkage flags.
+</p>
+<h4><a id='Aggregate-Types'>Aggregate Types</a></h4>
+<pre class="bnf">TYPEDEF :=
+    # Regular type
+    'type' :IDENT '=' ['align' NUMBER]
+    '{'
+        ( SUBTY [NUMBER] ),
+    '}'
+  | # Union type
+    'type' :IDENT '=' ['align' NUMBER]
+    '{'
+        (
+            '{'
+                ( SUBTY [NUMBER] ),
+            '}'
+        )+
+    '}'
+  | # Opaque type
+    'type' :IDENT '=' 'align' NUMBER '{' NUMBER '}'
+
+SUBTY := EXTTY | :IDENT
+</pre>
+<p>
+Aggregate type definitions start with the <code>type</code> keyword.
+They have file scope, but types must be defined before being
+referenced.  The inner structure of a type is expressed by a
+comma-separated list of types enclosed in curly braces.
+</p>
+<pre>
+type :fourfloats = { s, s, d, d }
+</pre>
+<p>
+For ease of IL generation, a trailing comma is tolerated by
+the parser.  In case many items of the same type are
+sequenced (like in a C array), the shorter array syntax
+can be used.
+</p>
+<pre>
+type :abyteandmanywords = { b, w 100 }
+</pre>
+<p>
+By default, the alignment of an aggregate type is the
+maximum alignment of its members.  The alignment can be
+explicitly specified by the programmer.
+</p>
+<pre>
+type :cryptovector = align 16 { w 4 }
+</pre>
+<p>
+Union types allow the same chunk of memory to be used with
+different layouts.  They are defined by enclosing multiple
+regular aggregate type bodies in a pair of curly braces.
+Size and alignment of union types are set to the maximum size
+and alignment of each variation or, in the case of alignment,
+can be explicitly specified.
+</p>
+<pre>
+type :un9 = { { b } { s } }
+</pre>
+<p>
+Opaque types are used when the inner structure of an
+aggregate cannot be specified; the alignment for opaque
+types is mandatory.  They are defined simply by enclosing
+their size between curly braces.
+</p>
+<pre>
+type :opaque = align 16 { 32 }
+</pre>
+<h4><a id='Data'>Data</a></h4>
+<pre class="bnf">DATADEF :=
+    LINKAGE*
+    'data' $IDENT '=' ['align' NUMBER]
+    '{'
+        ( EXTTY DATAITEM+
+        | 'z'   NUMBER ),
+    '}'
+
+DATAITEM :=
+    $IDENT ['+' NUMBER]  # Symbol and offset
+  |  '"' ... '"'         # String
+  |  CONST               # Constant
+</pre>
+<p>
+Data definitions express objects that will be emitted in the
+compiled file.  Their visibility and location in the compiled
+artifact are controlled with linkage flags described in the
+<a href="#Linkage">Linkage</a> section.
+</p>
+<p>
+They define a global identifier (starting with the sigil
+<code>$</code>), that will contain a pointer to the object specified
+by the definition.
+</p>
+<p>
+Objects are described by a sequence of fields that start with
+a type letter.  This letter can either be an extended type,
+or the <code>z</code> letter.  If the letter used is an extended type,
+the data item following specifies the bits to be stored in
+the field.  When several data items follow a letter, they
+initialize multiple fields of the same size.
+</p>
+<p>
+The members of a struct will be packed.  This means that
+padding has to be emitted by the frontend when necessary.
+Alignment of the whole data objects can be manually specified,
+and when no alignment is provided, the maximum alignment from
+the platform is used.
+</p>
+<p>
+When the <code>z</code> letter is used the number following indicates
+the size of the field; the contents of the field are zero
+initialized.  It can be used to add padding between fields
+or zero-initialize big arrays.
+</p>
+<p>
+Here are various examples of data definitions.
+</p>
+<pre>
+# Three 32-bit values 1, 2, and 3
+# followed by a 0 byte.
+data $a = { w 1 2 3, b 0 }
+
+# A thousand bytes 0 initialized.
+data $b = { z 1000 }
+
+# An object containing two 64-bit
+# fields, one with all bits sets and the
+# other containing a pointer to the
+# object itself.
+data $c = { l -1, l $c }
+</pre>
+<h4><a id='Functions'>Functions</a></h4>
+<pre class="bnf">FUNCDEF :=
+    LINKAGE*
+    'function' [ABITY] $IDENT '(' (PARAM), ')' [NL]
+    '{' NL
+        BLOCK+
+    '}'
+
+PARAM :=
+    ABITY %IDENT  # Regular parameter
+  | 'env' %IDENT  # Environment parameter (first)
+  | '...'         # Variadic marker (last)
+
+SUBWTY := 'sb' | 'ub' | 'sh' | 'uh'  # Sub-word types
+ABITY  := BASETY | SUBWTY | :IDENT
+</pre>
+<p>
+Function definitions contain the actual code to emit in
+the compiled file.  They define a global symbol that
+contains a pointer to the function code.  This pointer
+can be used in <code>call</code> instructions or stored in memory.
+</p>
+<p>
+The type given right before the function name is the
+return type of the function.  All return values of this
+function must have this return type.  If the return
+type is missing, the function must not return any value.
+</p>
+<p>
+The parameter list is a comma separated list of
+temporary names prefixed by types.  The types are used
+to correctly implement C compatibility.  When an argument
+has an aggregate type, a pointer to the aggregate is passed
+by the caller.  In the example below, we have to use a load
+instruction to get the value of the first (and only)
+member of the struct.
+</p>
+<pre>
+type :one = { w }
+
+function w $getone(:one %p) {
+@start
+        %val =w loadw %p
+        ret %val
+}
+</pre>
+<p>
+If a function accepts or returns values that are smaller
+than a word, such as <code>signed char</code> or <code>unsigned short</code> in C,
+one of the sub-word type must be used.  The sub-word types
+<code>sb</code>, <code>ub</code>, <code>sh</code>, and <code>uh</code> stand, respectively, for signed
+and unsigned 8-bit values, and signed and unsigned 16-bit
+values.  Parameters associated with a sub-word type of bit
+width N only have their N least significant bits set and
+have base type <code>w</code>.  For example, the function
+</p>
+<pre>
+function w $addbyte(w %a, sb %b) {
+@start
+        %bw =w extsb %b
+        %val =w add %a, %bw
+        ret %val
+}
+</pre>
+<p>
+needs to sign-extend its second argument before the
+addition.  Dually, return values with sub-word types do
+not need to be sign or zero extended.
+</p>
+<p>
+If the parameter list ends with <code>...</code>, the function is
+a variadic function: it can accept a variable number of
+arguments.  To access the extra arguments provided by
+the caller, use the <code>vastart</code> and <code>vaarg</code> instructions
+described in the <a href="#Variadic">Variadic</a> section.
+</p>
+<p>
+Optionally, the parameter list can start with an
+environment parameter <code>env %e</code>.  This special parameter is
+a 64-bit integer temporary (i.e., of type <code>l</code>).  If the
+function does not use its environment parameter, callers
+can safely omit it.  This parameter is invisible to a C
+caller: for example, the function
+</p>
+<pre>
+export function w $add(env %e, w %a, w %b) {
+@start
+        %c =w add %a, %b
+        ret %c
+}
+</pre>
+<p>
+must be given the C prototype <code>int add(int, int)</code>.
+The intended use of this feature is to pass the
+environment pointer of closures while retaining a
+very good compatibility with C.  The <a href="#Call">Call</a> section
+explains how to pass an environment parameter.
+</p>
+<p>
+Since global symbols are defined mutually recursive,
+there is no need for function declarations: a function
+can be referenced before its definition.
+Similarly, functions from other modules can be used
+without previous declaration.  All the type information
+necessary to compile a call is in the instruction itself. 
+</p>
+<p>
+The syntax and semantics for the body of functions
+are described in the <a href="#Control">Control</a> section.
+</p>
+<h3><a id='Control'>6. Control</a></h3>
+<p>
+The IL represents programs as textual transcriptions of
+control flow graphs.  The control flow is serialized as
+a sequence of blocks of straight-line code which are
+connected using jump instructions.
+</p>
+<h4><a id='Blocks'>Blocks</a></h4>
+<pre class="bnf">BLOCK :=
+    @IDENT NL     # Block label
+    ( PHI NL )*   # Phi instructions
+    ( INST NL )*  # Regular instructions
+    JUMP NL       # Jump or return
+</pre>
+<p>
+All blocks have a name that is specified by a label at
+their beginning.  Then follows a sequence of instructions
+that have "fall-through" flow.  Finally one jump terminates
+the block.  The jump can either transfer control to another
+block of the same function or return; jumps are described
+further below.
+</p>
+<p>
+The first block in a function must not be the target of
+any jump in the program.  If a jump to the function start
+is needed, the frontend must insert an empty prelude block
+at the beginning of the function.
+</p>
+<p>
+When one block jumps to the next block in the IL file,
+it is not necessary to write the jump instruction, it
+will be automatically added by the parser.  For example
+the start block in the example below jumps directly
+to the loop block.
+</p>
+<pre>
+function $loop() {
+@start
+@loop
+        %x =w phi @start 100, @loop %x1
+        %x1 =w sub %x, 1
+        jnz %x1, @loop, @end
+@end
+        ret
+}
+</pre>
+<h4><a id='Jumps'>Jumps</a></h4>
+<pre class="bnf">JUMP :=
+    'jmp' @IDENT               # Unconditional
+  | 'jnz' VAL, @IDENT, @IDENT  # Conditional
+  | 'ret' [VAL]                # Return
+  | 'hlt'                      # Termination
+</pre>
+<p>
+A jump instruction ends every block and transfers the
+control to another program location.  The target of
+a jump must never be the first block in a function.
+The three kinds of jumps available are described in
+the following list.
+</p>
+<ol>
+<li><p>
+ Unconditional jump.
+</p>
+<p>
+    Simply jumps to another block of the same function.
+</p>
+<li><p>
+ Conditional jump.
+</p>
+<p>
+    When its word argument is non-zero, it jumps to its
+    first label argument; otherwise it jumps to the other
+    label.  The argument must be of word type; because of
+    subtyping a long argument can be passed, but only its
+    least significant 32 bits will be compared to 0.
+</p>
+<li><p>
+ Function return.
+</p>
+<p>
+    Terminates the execution of the current function,
+    optionally returning a value to the caller.  The value
+    returned must be of the type given in the function
+    prototype.  If the function prototype does not specify
+    a return type, no return value can be used.
+</p>
+<li><p>
+ Program termination.
+</p>
+<p>
+    Terminates the execution of the program with a
+    target-dependent error.  This instruction can be used
+    when it is expected that the execution never reaches
+    the end of the block it closes; for example, after
+    having called a function such as <code>exit()</code>.
+</p>
+</ol>
+<h3><a id='Instructions'>7. Instructions</a></h3>
+<p>
+Instructions are the smallest piece of code in the IL, they
+form the body of <a href="#Blocks">Blocks</a>.  The IL uses a three-address
+code, which means that one instruction computes an operation
+between two operands and assigns the result to a third one.
+</p>
+<p>
+An instruction has both a name and a return type, this
+return type is a base type that defines the size of the
+instruction's result.  The type of the arguments can be
+unambiguously inferred using the instruction name and the
+return type.  For example, for all arithmetic instructions,
+the type of the arguments is the same as the return type.
+The two additions below are valid if <code>%y</code> is a word or a long
+(because of <a href="#Subtyping">Subtyping</a>).
+</p>
+<pre>
+%x =w add 0, %y
+%z =w add %x, %x
+</pre>
+<p>
+Some instructions, like comparisons and memory loads
+have operand types that differ from their return types.
+For instance, two floating points can be compared to give a
+word result (0 if the comparison succeeds, 1 if it fails).
+</p>
+<pre>
+%c =w cgts %a, %b
+</pre>
+<p>
+In the example above, both operands have to have single type.
+This is made explicit by the instruction suffix.
+</p>
+<p>
+The types of instructions are described below using a short
+type string.  A type string specifies all the valid return
+types an instruction can have, its arity, and the type of
+its arguments depending on its return type.
+</p>
+<p>
+Type strings begin with acceptable return types, then
+follows, in parentheses, the possible types for the arguments.
+If the N-th return type of the type string is used for an
+instruction, the arguments must use the N-th type listed for
+them in the type string.  When an instruction does not have a
+return type, the type string only contains the types of the
+arguments.
+</p>
+<p>
+The following abbreviations are used.
+</p>
+<ul>
+<li> <code>T</code> stands for <code>wlsd</code>
+<li> <code>I</code> stands for <code>wl</code>
+<li> <code>F</code> stands for <code>sd</code>
+<li> <code>m</code> stands for the type of pointers on the target; on
+    64-bit architectures it is the same as <code>l</code>
+</ul>
+<p>
+For example, consider the type string <code>wl(F)</code>, it mentions
+that the instruction has only one argument and that if the
+return type used is long, the argument must be of type double.
+</p>
+<h4><a id='Arithmetic-and-Bits'>Arithmetic and Bits</a></h4>
+<ul>
+<li> <code>add</code>, <code>sub</code>, <code>div</code>, <code>mul</code> -- <code>T(T,T)</code>
+<li> <code>neg</code> -- <code>T(T)</code>
+<li> <code>udiv</code>, <code>rem</code>, <code>urem</code> -- <code>I(I,I)</code>
+<li> <code>or</code>, <code>xor</code>, <code>and</code> -- <code>I(I,I)</code>
+<li> <code>sar</code>, <code>shr</code>, <code>shl</code> -- <code>I(I,ww)</code>
+</ul>
+<p>
+The base arithmetic instructions in the first bullet are
+available for all types, integers and floating points.
+</p>
+<p>
+When <code>div</code> is used with word or long return type, the
+arguments are treated as signed.  The unsigned integral
+division is available as <code>udiv</code> instruction.  When the
+result of a division is not an integer, it is truncated
+towards zero.
+</p>
+<p>
+The signed and unsigned remainder operations are available
+as <code>rem</code> and <code>urem</code>.  The sign of the remainder is the same
+as the one of the dividend.  Its magnitude is smaller than
+the divisor one.  These two instructions and <code>udiv</code> are only
+available with integer arguments and result.
+</p>
+<p>
+Bitwise OR, AND, and XOR operations are available for both
+integer types.  Logical operations of typical programming
+languages can be implemented using <a href="#Comparisons">Comparisons</a> and
+<a href="#Jumps">Jumps</a>.
+</p>
+<p>
+Shift instructions <code>sar</code>, <code>shr</code>, and <code>shl</code>, shift right or
+left their first operand by the amount from the second
+operand.  The shifting amount is taken modulo the size of
+the result type.  Shifting right can either preserve the
+sign of the value (using <code>sar</code>), or fill the newly freed
+bits with zeroes (using <code>shr</code>).  Shifting left always
+fills the freed bits with zeroes.
+</p>
+<p>
+Remark that an arithmetic shift right (<code>sar</code>) is only
+equivalent to a division by a power of two for non-negative
+numbers.  This is because the shift right "truncates"
+towards minus infinity, while the division truncates
+towards zero.
+</p>
+<h4><a id='Memory'>Memory</a></h4>
+<ul>
+<li><p>
+ Store instructions.
+</p>
+<ul>
+<li> <code>stored</code> -- <code>(d,m)</code>
+<li> <code>stores</code> -- <code>(s,m)</code>
+<li> <code>storel</code> -- <code>(l,m)</code>
+<li> <code>storew</code> -- <code>(w,m)</code>
+<li> <code>storeh</code> -- <code>(w,m)</code>
+<li> <code>storeb</code> -- <code>(w,m)</code>
+</ul>
+<p>
+    Store instructions exist to store a value of any base type
+    and any extended type.  Since halfwords and bytes are not
+    first class in the IL, <code>storeh</code> and <code>storeb</code> take a word
+    as argument.  Only the first 16 or 8 bits of this word will
+    be stored in memory at the address specified in the second
+    argument.
+</p>
+<li><p>
+ Load instructions.
+</p>
+<ul>
+<li> <code>loadd</code> -- <code>d(m)</code>
+<li> <code>loads</code> -- <code>s(m)</code>
+<li> <code>loadl</code> -- <code>l(m)</code>
+<li> <code>loadsw</code>, <code>loaduw</code> -- <code>I(mm)</code>
+<li> <code>loadsh</code>, <code>loaduh</code> -- <code>I(mm)</code>
+<li> <code>loadsb</code>, <code>loadub</code> -- <code>I(mm)</code>
+</ul>
+<p>
+    For types smaller than long, two variants of the load
+    instruction are available: one will sign extend the loaded
+    value, while the other will zero extend it.  Note that
+    all loads smaller than long can load to either a long or
+    a word.
+</p>
+<p>
+    The two instructions <code>loadsw</code> and <code>loaduw</code> have the same
+    effect when they are used to define a word temporary.
+    A <code>loadw</code> instruction is provided as syntactic sugar for
+    <code>loadsw</code> to make explicit that the extension mechanism
+    used is irrelevant.
+</p>
+<li><p>
+ Blits.
+</p>
+<ul>
+<li> <code>blit</code> -- <code>(m,m,w)</code>
+</ul>
+<p>
+    The blit instruction copies in-memory data from its
+    first address argument to its second address argument.
+    The third argument is the number of bytes to copy.  The
+    source and destination spans are required to be either
+    non-overlapping, or fully overlapping (source address
+    identical to the destination address).  The byte count
+    argument must be a nonnegative numeric constant; it
+    cannot be a temporary.
+</p>
+<p>
+    One blit instruction may generate a number of
+    instructions proportional to its byte count argument,
+    consequently, it is recommended to keep this argument
+    relatively small.  If large copies are necessary, it is
+    preferable that frontends generate calls to a supporting
+    <code>memcpy</code> function.
+</p>
+<li><p>
+ Stack allocation.
+</p>
+<ul>
+<li> <code>alloc4</code> -- <code>m(l)</code>
+<li> <code>alloc8</code> -- <code>m(l)</code>
+<li> <code>alloc16</code> -- <code>m(l)</code>
+</ul>
+<p>
+    These instructions allocate a chunk of memory on the
+    stack.  The number ending the instruction name is the
+    alignment required for the allocated slot.  QBE will
+    make sure that the returned address is a multiple of
+    that alignment value.
+</p>
+<p>
+    Stack allocation instructions are used, for example,
+    when compiling the C local variables, because their
+    address can be taken.  When compiling Fortran,
+    temporaries can be used directly instead, because
+    it is illegal to take the address of a variable.
+</p>
+</ul>
+<p>
+The following example makes use of some of the memory
+instructions.  Pointers are stored in long temporaries.
+</p>
+<pre>
+%A0 =l alloc4 8      # stack allocate an array A of 2 words
+%A1 =l add %A0, 4
+storew 43,  %A0      # A[0] &lt;- 43
+storew 255, %A1      # A[1] &lt;- 255
+%v1 =w loadw  %A0    # %v1 &lt;- A[0] as word
+%v2 =w loadsb %A1    # %v2 &lt;- A[1] as signed byte
+%v3 =w add %v1, %v2  # %v3 is 42 here
+</pre>
+<h4><a id='Comparisons'>Comparisons</a></h4>
+<p>
+Comparison instructions return an integer value (either a word
+or a long), and compare values of arbitrary types.  The returned
+value is 1 if the two operands satisfy the comparison
+relation, or 0 otherwise.  The names of comparisons respect
+a standard naming scheme in three parts.
+</p>
+<ol>
+<li> All comparisons start with the letter <code>c</code>.
+<li><p>
+ Then comes a comparison type.  The following
+    types are available for integer comparisons:
+</p>
+<ul>
+<li> <code>eq</code> for equality
+<li> <code>ne</code> for inequality
+<li> <code>sle</code> for signed lower or equal
+<li> <code>slt</code> for signed lower
+<li> <code>sge</code> for signed greater or equal
+<li> <code>sgt</code> for signed greater
+<li> <code>ule</code> for unsigned lower or equal
+<li> <code>ult</code> for unsigned lower
+<li> <code>uge</code> for unsigned greater or equal
+<li> <code>ugt</code> for unsigned greater
+</ul>
+<p>
+    Floating point comparisons use one of these types:
+</p>
+<ul>
+<li> <code>eq</code> for equality
+<li> <code>ne</code> for inequality
+<li> <code>le</code> for lower or equal
+<li> <code>lt</code> for lower
+<li> <code>ge</code> for greater or equal
+<li> <code>gt</code> for greater
+<li> <code>o</code> for ordered (no operand is a NaN)
+<li> <code>uo</code> for unordered (at least one operand is a NaN)
+</ul>
+<p>
+    Because floating point types always have a sign bit,
+    all the comparisons available are signed.
+</p>
+<li> Finally, the instruction name is terminated with a
+    basic type suffix precising the type of the operands
+    to be compared.
+</ol>
+<p>
+For example, <code>cod</code> (<code>I(dd,dd)</code>) compares two double-precision
+floating point numbers and returns 1 if the two floating points
+are not NaNs, or 0 otherwise.  The <code>csltw</code> (<code>I(ww,ww)</code>)
+instruction compares two words representing signed numbers and
+returns 1 when the first argument is smaller than the second one.
+</p>
+<h4><a id='Conversions'>Conversions</a></h4>
+<p>
+Conversion operations change the representation of a value,
+possibly modifying it if the target type cannot hold the value
+of the source type.  Conversions can extend the precision of a
+temporary (e.g., from signed 8-bit to 32-bit), or convert a
+floating point into an integer and vice versa.
+</p>
+<ul>
+<li> <code>extsw</code>, <code>extuw</code> -- <code>l(w)</code>
+<li> <code>extsh</code>, <code>extuh</code> -- <code>I(ww)</code>
+<li> <code>extsb</code>, <code>extub</code> -- <code>I(ww)</code>
+<li> <code>exts</code> -- <code>d(s)</code>
+<li> <code>truncd</code> -- <code>s(d)</code>
+<li> <code>stosi</code> -- <code>I(ss)</code>
+<li> <code>stoui</code> -- <code>I(ss)</code>
+<li> <code>dtosi</code> -- <code>I(dd)</code>
+<li> <code>dtoui</code> -- <code>I(dd)</code>
+<li> <code>swtof</code> -- <code>F(ww)</code>
+<li> <code>uwtof</code> -- <code>F(ww)</code>
+<li> <code>sltof</code> -- <code>F(ll)</code>
+<li> <code>ultof</code> -- <code>F(ll)</code>
+</ul>
+<p>
+Extending the precision of a temporary is done using the
+<code>ext</code> family of instructions.  Because QBE types do not
+specify the signedness (like in LLVM), extension instructions
+exist to sign-extend and zero-extend a value.  For example,
+<code>extsb</code> takes a word argument and sign-extends the 8
+least-significant bits to a full word or long, depending on
+the return type.
+</p>
+<p>
+The instructions <code>exts</code> (extend single) and <code>truncd</code> (truncate
+double) are provided to change the precision of a floating
+point value.  When the double argument of <code>truncd</code> cannot
+be represented as a single-precision floating point, it is
+truncated towards zero.
+</p>
+<p>
+Converting between signed integers and floating points is done
+using <code>stosi</code> (single to signed integer), <code>stoui</code> (single to
+unsigned integer, <code>dtosi</code> (double to signed integer), <code>dtoui</code>
+(double to unsigned integer), <code>swtof</code> (signed word to float),
+<code>uwtof</code> (unsigned word to float), <code>sltof</code> (signed long to
+float) and <code>ultof</code> (unsigned long to float).
+</p>
+<p>
+Because of <a href="#Subtyping">Subtyping</a>, there is no need to have an
+instruction to lower the precision of an integer temporary.
+</p>
+<h4><a id='Cast-and-Copy'>Cast and Copy</a></h4>
+<p>
+The <code>cast</code> and <code>copy</code> instructions return the bits of their
+argument verbatim.  However a <code>cast</code> will change an integer
+into a floating point of the same width and vice versa.
+</p>
+<ul>
+<li> <code>cast</code> -- <code>wlsd(sdwl)</code>
+<li> <code>copy</code> -- <code>T(T)</code>
+</ul>
+<p>
+Casts can be used to make bitwise operations on the
+representation of floating point numbers.  For example
+the following program will compute the opposite of the
+single-precision floating point number <code>%f</code> into <code>%rs</code>.
+</p>
+<pre>
+%b0 =w cast %f
+%b1 =w xor 2147483648, %b0  # flip the msb
+%rs =s cast %b1
+</pre>
+<h4><a id='Call'>Call</a></h4>
+<pre class="bnf">CALL := [%IDENT '=' ABITY] 'call' VAL '(' (ARG), ')'
+
+ARG :=
+    ABITY VAL  # Regular argument
+  | 'env' VAL  # Environment argument (first)
+  | '...'      # Variadic marker
+
+SUBWTY := 'sb' | 'ub' | 'sh' | 'uh'  # Sub-word types
+ABITY  := BASETY | SUBWTY | :IDENT
+</pre>
+<p>
+The call instruction is special in several ways.  It is not
+a three-address instruction and requires the type of all
+its arguments to be given.  Also, the return type can be
+either a base type or an aggregate type.  These specifics
+are required to compile calls with C compatibility (i.e.,
+to respect the ABI).
+</p>
+<p>
+When an aggregate type is used as argument type or return
+type, the value respectively passed or returned needs to be
+a pointer to a memory location holding the value.  This is
+because aggregate types are not first-class citizens of
+the IL.
+</p>
+<p>
+Sub-word types are used for arguments and return values
+of width less than a word.  Details on these types are
+presented in the <a href="#Functions">Functions</a> section.  Arguments with
+sub-word types need not be sign or zero extended according
+to their type.  Calls with a sub-word return type define
+a temporary of base type <code>w</code> with its most significant bits
+unspecified.
+</p>
+<p>
+Unless the called function does not return a value, a
+return temporary must be specified, even if it is never
+used afterwards.
+</p>
+<p>
+An environment parameter can be passed as first argument
+using the <code>env</code> keyword.  The passed value must be a 64-bit
+integer.  If the called function does not expect an environment
+parameter, it will be safely discarded.  See the <a href="#Functions">Functions</a>
+section for more information about environment parameters.
+</p>
+<p>
+When the called function is variadic, there must be a <code>...</code>
+marker separating the named and variadic arguments.
+</p>
+<h4><a id='Variadic'>Variadic</a></h4>
+<p>
+The <code>vastart</code> and <code>vaarg</code> instructions provide a portable
+way to access the extra parameters of a variadic function.
+</p>
+<ul>
+<li> <code>vastart</code> -- <code>(m)</code>
+<li> <code>vaarg</code> -- <code>T(mmmm)</code>
+</ul>
+<p>
+The <code>vastart</code> instruction initializes a <em>variable argument
+list</em> used to access the extra parameters of the enclosing
+variadic function.  It is safe to call it multiple times.
+</p>
+<p>
+The <code>vaarg</code> instruction fetches the next argument from
+a variable argument list.  It is currently limited to
+fetching arguments that have a base type.  This instruction
+is essentially effectful: calling it twice in a row will
+return two consecutive arguments from the argument list.
+</p>
+<p>
+Both instructions take a pointer to a variable argument
+list as sole argument.  The size and alignment of variable
+argument lists depend on the target used.  However, it
+is possible to conservatively use the maximum size and
+alignment required by all the targets.
+</p>
+<pre>
+type :valist = align 8 { 24 }  # For amd64_sysv
+type :valist = align 8 { 32 }  # For arm64
+type :valist = align 8 { 8 }   # For rv64
+</pre>
+<p>
+The following example defines a variadic function adding
+its first three arguments.
+</p>
+<pre>
+function s $add3(s %a, ...) {
+@start
+        %ap =l alloc8 32
+        vastart %ap
+        %r =s call $vadd(s %a, l %ap)
+        ret %r
+}
+
+function s $vadd(s %a, l %ap) {
+@start
+        %b =s vaarg %ap
+        %c =s vaarg %ap
+        %d =s add %a, %b
+        %e =s add %d, %c
+        ret %e
+}
+</pre>
+<h4><a id='Phi'>Phi</a></h4>
+<pre class="bnf">PHI := %IDENT '=' BASETY 'phi' ( @IDENT VAL ),
+</pre>
+<p>
+First and foremost, phi instructions are NOT necessary when
+writing a frontend to QBE.  One solution to avoid having to
+deal with SSA form is to use stack allocated variables for
+all source program variables and perform assignments and
+lookups using <a href="#Memory">Memory</a> operations.  This is what LLVM
+users typically do.
+</p>
+<p>
+Another solution is to simply emit code that is not in SSA
+form!  Contrary to LLVM, QBE is able to fixup programs not
+in SSA form without requiring the boilerplate of loading
+and storing in memory.  For example, the following program
+will be correctly compiled by QBE.
+</p>
+<pre>
+@start
+        %x =w copy 100
+        %s =w copy 0
+@loop
+        %s =w add %s, %x
+        %x =w sub %x, 1
+        jnz %x, @loop, @end
+@end
+        ret %s
+</pre>
+<p>
+Now, if you want to know what phi instructions are and how
+to use them in QBE, you can read the following.
+</p>
+<p>
+Phi instructions are specific to SSA form.  In SSA form
+values can only be assigned once, without phi instructions,
+this requirement is too strong to represent many programs.
+For example consider the following C program.
+</p>
+<pre>
+int f(int x) {
+        int y;
+        if (x)
+                y = 1;
+        else
+                y = 2;
+        return y;
+}
+</pre>
+<p>
+The variable <code>y</code> is assigned twice, the solution to
+translate it in SSA form is to insert a phi instruction.
+</p>
+<pre>
+@ifstmt
+        jnz %x, @ift, @iff
+@ift
+        jmp @retstmt
+@iff
+        jmp @retstmt
+@retstmt
+        %y =w phi @ift 1, @iff 2
+        ret %y
+</pre>
+<p>
+Phi instructions return one of their arguments depending
+on where the control came from.  In the example, <code>%y</code> is
+set to 1 if the <code>@ift</code> branch is taken, or it is set to
+2 otherwise.
+</p>
+<p>
+An important remark about phi instructions is that QBE
+assumes that if a variable is defined by a phi it respects
+all the SSA invariants.  So it is critical to not use phi
+instructions unless you know exactly what you are doing.
+</p>
+<h3><a id='Instructions-Index'>8. Instructions Index</a></h3>
+<ul>
+<li><p>
+ <a href="#Arithmetic-and-Bits">Arithmetic and Bits</a>:
+</p>
+<ul>
+<li> <code>add</code>
+<li> <code>and</code>
+<li> <code>div</code>
+<li> <code>mul</code>
+<li> <code>neg</code>
+<li> <code>or</code>
+<li> <code>rem</code>
+<li> <code>sar</code>
+<li> <code>shl</code>
+<li> <code>shr</code>
+<li> <code>sub</code>
+<li> <code>udiv</code>
+<li> <code>urem</code>
+<li> <code>xor</code>
+</ul>
+<li><p>
+ <a href="#Memory">Memory</a>:
+</p>
+<ul>
+<li> <code>alloc16</code>
+<li> <code>alloc4</code>
+<li> <code>alloc8</code>
+<li> <code>blit</code>
+<li> <code>loadd</code>
+<li> <code>loadl</code>
+<li> <code>loads</code>
+<li> <code>loadsb</code>
+<li> <code>loadsh</code>
+<li> <code>loadsw</code>
+<li> <code>loadub</code>
+<li> <code>loaduh</code>
+<li> <code>loaduw</code>
+<li> <code>loadw</code>
+<li> <code>storeb</code>
+<li> <code>stored</code>
+<li> <code>storeh</code>
+<li> <code>storel</code>
+<li> <code>stores</code>
+<li> <code>storew</code>
+</ul>
+<li><p>
+ <a href="#Comparisons">Comparisons</a>:
+</p>
+<ul>
+<li> <code>ceqd</code>
+<li> <code>ceql</code>
+<li> <code>ceqs</code>
+<li> <code>ceqw</code>
+<li> <code>cged</code>
+<li> <code>cges</code>
+<li> <code>cgtd</code>
+<li> <code>cgts</code>
+<li> <code>cled</code>
+<li> <code>cles</code>
+<li> <code>cltd</code>
+<li> <code>clts</code>
+<li> <code>cned</code>
+<li> <code>cnel</code>
+<li> <code>cnes</code>
+<li> <code>cnew</code>
+<li> <code>cod</code>
+<li> <code>cos</code>
+<li> <code>csgel</code>
+<li> <code>csgew</code>
+<li> <code>csgtl</code>
+<li> <code>csgtw</code>
+<li> <code>cslel</code>
+<li> <code>cslew</code>
+<li> <code>csltl</code>
+<li> <code>csltw</code>
+<li> <code>cugel</code>
+<li> <code>cugew</code>
+<li> <code>cugtl</code>
+<li> <code>cugtw</code>
+<li> <code>culel</code>
+<li> <code>culew</code>
+<li> <code>cultl</code>
+<li> <code>cultw</code>
+<li> <code>cuod</code>
+<li> <code>cuos</code>
+</ul>
+<li><p>
+ <a href="#Conversions">Conversions</a>:
+</p>
+<ul>
+<li> <code>dtosi</code>
+<li> <code>dtoui</code>
+<li> <code>exts</code>
+<li> <code>extsb</code>
+<li> <code>extsh</code>
+<li> <code>extsw</code>
+<li> <code>extub</code>
+<li> <code>extuh</code>
+<li> <code>extuw</code>
+<li> <code>sltof</code>
+<li> <code>ultof</code>
+<li> <code>stosi</code>
+<li> <code>stoui</code>
+<li> <code>swtof</code>
+<li> <code>uwtof</code>
+<li> <code>truncd</code>
+</ul>
+<li><p>
+ <a href="#Cast-and-Copy">Cast and Copy</a> :
+</p>
+<ul>
+<li> <code>cast</code>
+<li> <code>copy</code>
+</ul>
+<li><p>
+ <a href="#Call">Call</a>:
+</p>
+<ul>
+<li> <code>call</code>
+</ul>
+<li><p>
+ <a href="#Variadic">Variadic</a>:
+</p>
+<ul>
+<li> <code>vastart</code>
+<li> <code>vaarg</code>
+</ul>
+<li><p>
+ <a href="#Phi">Phi</a>:
+</p>
+<ul>
+<li> <code>phi</code>
+</ul>
+<li><p>
+ <a href="#Jumps">Jumps</a>:
+</p>
+<ul>
+<li> <code>hlt</code>
+<li> <code>jmp</code>
+<li> <code>jnz</code>
+<li> <code>ret</code>
+</ul>
+</ul>
+</div>
+<!-- analytics free! -->

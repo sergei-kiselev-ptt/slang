@@ -1,5 +1,6 @@
 mod lexer;
 mod parser;
+mod qbe;
 mod repl;
 
 use std::env;
@@ -10,6 +11,7 @@ use std::process::exit;
 use lexer::parse_into_tokens;
 use log::{debug, error, info};
 use parser::Parser;
+use qbe::Compiler;
 use repl::run_repl;
 use simple_logger::SimpleLogger;
 use time::macros::format_description;
@@ -58,8 +60,16 @@ fn process_file(file_path: &str) -> Result<(), Error> {
     info!(
         "Expression {}; parsed: {}; result={}",
         content_str.trim(),
-        expr.print(),
+        expr.as_str(),
         expr.eval_no_env().print()
     );
+
+    let mut compiler = Compiler::new();
+    let text = compiler.compile(expr);
+    println!("------------------");
+    for line in text {
+        println!("{}", line);
+    }
+    println!("------------------");
     return Ok(());
 }

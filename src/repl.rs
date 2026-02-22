@@ -28,6 +28,7 @@ pub fn run_repl() {
         }
         let mut parser = Parser::new(tokens.unwrap());
         let expr = parser.parse();
+        println!("{}", expr.as_str());
 
         println!("{}", expr.eval(&mut env).print());
     }
