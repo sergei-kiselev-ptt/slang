@@ -32,16 +32,25 @@ impl Compiler {
         let mut out = vec![];
         out.push("export function w $main() {".to_string());
         out.push("@start".to_string());
-        let (_tmp, _ty, instructions) = self.compile_expr(expr).unwrap();
+        let (_tmp, _ty, instructions) = self.compile_expr(&expr).unwrap();
         for line in instructions {
             out.push(format!("  {}", line));
         }
+        out.push(format!(
+            "  call $printf(l $fmt, ..., d %t{})",
+            self.counter - 1
+        ));
         out.push("  ret 0".to_string());
         out.push("}".to_string());
+        out.push("\n".to_string());
+        out.push(format!(
+            "data $fmt = {{ b \"QBE: {} = %f\\n\", b 0 }}",
+            expr.as_str()
+        ));
         out
     }
 
-    fn compile_expr(&mut self, expr: Expr) -> Result<(String, ResType, Vec<String>)> {
+    fn compile_expr(&mut self, expr: &Expr) -> Result<(String, ResType, Vec<String>)> {
         match expr {
             Expr::Literal(literal_value) => {
                 let tmp = self.next_tmp();
@@ -52,7 +61,7 @@ impl Compiler {
                         vec![format!("{} =d copy d_{}", tmp, n)],
                     )),
                     LiteralValue::Bool(b) => {
-                        let val = if b { 1 } else { 0 };
+                        let val = if *b { 1 } else { 0 };
                         Ok((
                             tmp.clone(),
                             ResType::Bool,
@@ -64,15 +73,15 @@ impl Compiler {
             }
 
             Expr::Unary { operator, right } => {
-                let (right_tmp, _right_ty, mut instructions) = self.compile_expr(*right)?;
+                let (right_tmp, _right_ty, mut instructions) = self.compile_expr(right)?;
                 let tmp = self.next_tmp();
                 match operator.token_type {
                     TokenType::Minus => {
-                        instructions.push(format!("{} =d neg {}", tmp, right_tmp));
+                        instructions.push(format!("{} =d neg d_{}", tmp, right_tmp));
                         Ok((tmp, ResType::Number, instructions))
                     }
                     TokenType::Plus => {
-                        instructions.push(format!("{} =d copy {}", tmp, right_tmp));
+                        instructions.push(format!("{} =d copy d_{}", tmp, right_tmp));
                         Ok((tmp, ResType::Number, instructions))
                     }
                     TokenType::Bang => {
@@ -88,8 +97,8 @@ impl Compiler {
                 operator,
                 right,
             } => {
-                let (l_tmp, l_type, l_instructions) = self.compile_expr(*left)?;
-                let (r_tmp, r_type, r_instructions) = self.compile_expr(*right)?;
+                let (l_tmp, l_type, l_instructions) = self.compile_expr(left)?;
+                let (r_tmp, r_type, r_instructions) = self.compile_expr(right)?;
                 let mut instructions = l_instructions.clone();
                 instructions.extend_from_slice(&r_instructions);
                 if l_type != r_type {
@@ -101,19 +110,19 @@ impl Compiler {
                 let tmp = self.next_tmp();
                 match operator.token_type {
                     TokenType::Minus => {
-                        instructions.push(format!("{} =d sub {} {}", tmp, l_tmp, r_tmp));
+                        instructions.push(format!("{} =d sub {}, {}", tmp, l_tmp, r_tmp));
                         Ok((tmp, ResType::Number, instructions))
                     }
                     TokenType::Plus => {
-                        instructions.push(format!("{} =d add {} {}", tmp, l_tmp, r_tmp));
+                        instructions.push(format!("{} =d add {}, {}", tmp, l_tmp, r_tmp));
                         Ok((tmp, ResType::Number, instructions))
                     }
                     TokenType::Star => {
-                        instructions.push(format!("{} =d mul {} {}", tmp, l_tmp, r_tmp));
+                        instructions.push(format!("{} =d mul {}, {}", tmp, l_tmp, r_tmp));
                         Ok((tmp, ResType::Number, instructions))
                     }
                     TokenType::Slash => {
-                        instructions.push(format!("{} =d div {} {}", tmp, l_tmp, r_tmp));
+                        instructions.push(format!("{} =d div {}, {}", tmp, l_tmp, r_tmp));
                         Ok((tmp, ResType::Number, instructions))
                     }
 

@@ -3,10 +3,10 @@ mod parser;
 mod qbe;
 mod repl;
 
-use std::env;
 use std::fs::read_to_string;
-use std::io::Error;
+use std::io::{Error, Write};
 use std::process::exit;
+use std::{env, fs::File};
 
 use lexer::parse_into_tokens;
 use log::{debug, error, info};
@@ -67,8 +67,10 @@ fn process_file(file_path: &str) -> Result<(), Error> {
     let mut compiler = Compiler::new();
     let text = compiler.compile(expr);
     println!("------------------");
+    let mut file = File::create(".build/main.qbe")?;
     for line in text {
         println!("{}", line);
+        write!(file, "{}\n", line)?;
     }
     println!("------------------");
     return Ok(());
