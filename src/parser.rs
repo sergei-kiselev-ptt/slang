@@ -331,6 +331,10 @@ impl Parser {
     }
 
     fn match_token(&mut self, types: &[TokenType]) -> bool {
+        let saved = self.current;
+        while !self.is_at_end() && self.current().token_type == TokenType::Newline {
+            self.current += 1;
+        }
         for t_type in types {
             if !self.is_at_end() && self.current().token_type == *t_type {
                 self.advance();
@@ -338,6 +342,7 @@ impl Parser {
             }
         }
 
+        self.current = saved;
         false
     }
 }

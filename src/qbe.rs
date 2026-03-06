@@ -45,7 +45,11 @@ impl Compiler {
         for expr in &exprs {
             let (tmp, ty, instructions) = self.compile_expr(expr)?;
             for line in instructions {
-                out.push(format!("  {}", line));
+                if line.starts_with('@') {
+                    out.push(line);
+                } else {
+                    out.push(format!("  {}", line));
+                }
             }
             last_expr_str = expr.as_str();
             last_tmp = tmp;
@@ -237,7 +241,80 @@ impl Compiler {
                 instructions.push(store);
                 Ok((val_tmp, ty, instructions))
             }
-            Expr::If { .. } => todo!(),
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                let (cond_tmp, _, cond_instrs) = self.compile_expr(condition)?;
+                let (then_tmp, then_ty, then_instrs) = self.compile_expr(then_branch)?;
+                let else_compiled = else_branch
+                    .as_ref()
+                    .map(|eb| self.compile_expr(eb))
+                    .transpose()?;
+
+                let id = self.counter;
+                let slot = self.next_tmp();
+                let then_label = format!("@then_{}", id);
+                let end_label = format!("@end_{}", id);
+
+                let mut out = cond_instrs;
+
+                out.push(match then_ty {
+                    ResType::Number => format!("{} =l alloc8 8", slot),
+                    ResType::Bool => format!("{} =l alloc4 4", slot),
+                });
+
+                if let Some((else_tmp, _, else_instrs)) = else_compiled {
+                    let else_label = format!("@else_{}", id);
+                    out.push(format!("jnz {}, {}, {}", cond_tmp, then_label, else_label));
+
+                    out.push(then_label);
+                    out.extend(then_instrs);
+                    out.push(match then_ty {
+                        ResType::Number => format!("stored {}, {}", then_tmp, slot),
+                        ResType::Bool => format!("storew {}, {}", then_tmp, slot),
+                    });
+                    out.push(format!("jmp {}", end_label));
+
+                    out.push(else_label);
+                    out.extend(else_instrs);
+                    out.push(match then_ty {
+                        ResType::Number => format!("stored {}, {}", else_tmp, slot),
+                        ResType::Bool => format!("storew {}, {}", else_tmp, slot),
+                    });
+                    out.push(format!("jmp {}", end_label));
+                } else {
+                    // no else: initialize slot to type default, skip then if false
+                    let default_tmp = self.next_tmp();
+                    out.push(match then_ty {
+                        ResType::Number => format!("{} =d copy d_0", default_tmp),
+                        ResType::Bool => format!("{} =w copy 0", default_tmp),
+                    });
+                    out.push(match then_ty {
+                        ResType::Number => format!("stored {}, {}", default_tmp, slot),
+                        ResType::Bool => format!("storew {}, {}", default_tmp, slot),
+                    });
+                    out.push(format!("jnz {}, {}, {}", cond_tmp, then_label, end_label));
+
+                    out.push(then_label);
+                    out.extend(then_instrs);
+                    out.push(match then_ty {
+                        ResType::Number => format!("stored {}, {}", then_tmp, slot),
+                        ResType::Bool => format!("storew {}, {}", then_tmp, slot),
+                    });
+                    out.push(format!("jmp {}", end_label));
+                }
+
+                out.push(end_label);
+                let result_tmp = self.next_tmp();
+                out.push(match then_ty {
+                    ResType::Number => format!("{} =d loadd {}", result_tmp, slot),
+                    ResType::Bool => format!("{} =w loadsw {}", result_tmp, slot),
+                });
+
+                Ok((result_tmp, then_ty, out))
+            }
         }
     }
 }
@@ -374,5 +451,40 @@ mod tests {
         let (tmp, ty, instrs) = compile_expr("true != false");
         assert_eq!(ty, ResType::Bool);
         assert_eq!(instrs.last().unwrap(), &format!("{} =w cnew %t0, %t1", tmp));
+    }
+
+    #[test]
+    fn if_with_else_number() {
+        let (tmp, ty, instrs) = compile_expr("if true { 1 } else { 2 }");
+        assert_eq!(ty, ResType::Number);
+        assert!(instrs.iter().any(|i| i.contains("jnz")));
+        assert!(instrs.iter().any(|i| i.starts_with("@then_")));
+        assert!(instrs.iter().any(|i| i.starts_with("@else_")));
+        assert!(instrs.iter().any(|i| i.starts_with("@end_")));
+        assert!(
+            instrs.last().unwrap().contains("loadd") && instrs.last().unwrap().starts_with(&tmp)
+        );
+    }
+
+    #[test]
+    fn if_without_else_number() {
+        let (tmp, ty, instrs) = compile_expr("if true { 42 }");
+        assert_eq!(ty, ResType::Number);
+        assert!(instrs.iter().any(|i| i.contains("jnz")));
+        assert!(instrs.iter().any(|i| i.starts_with("@then_")));
+        assert!(!instrs.iter().any(|i| i.starts_with("@else_")));
+        assert!(instrs.iter().any(|i| i.contains("d_0"))); // default init
+        assert!(
+            instrs.last().unwrap().contains("loadd") && instrs.last().unwrap().starts_with(&tmp)
+        );
+    }
+
+    #[test]
+    fn if_with_else_bool() {
+        let (tmp, ty, instrs) = compile_expr("if false { true } else { false }");
+        assert_eq!(ty, ResType::Bool);
+        assert!(
+            instrs.last().unwrap().contains("loadsw") && instrs.last().unwrap().starts_with(&tmp)
+        );
     }
 }
