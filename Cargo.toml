@@ -8,10 +8,3 @@ log = "0.4.27"
 simple_logger = "5.0.0"
 test-case = "3.3.1"
 time = "0.3.41"
-
-# Cranelift JIT
-cranelift-codegen = "0.116"
-cranelift-frontend = "0.116"
-cranelift-jit = "0.116"
-cranelift-module = "0.116"
-cranelift-native = "0.116"

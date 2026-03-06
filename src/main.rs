@@ -1,4 +1,3 @@
-mod jit;
 mod lexer;
 mod parser;
 mod repl;
