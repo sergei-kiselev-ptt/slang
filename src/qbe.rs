@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use thiserror::Error;
 
@@ -9,9 +10,10 @@ use crate::{
 
 pub struct Compiler {
     counter: usize,
+    vars: HashMap<String, (String, ResType)>, // name -> (stack_slot_tmp, type)
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 enum ResType {
     Number, // QBE type 'd' (double)
     Bool,   // QBE type 'w' (word)
@@ -19,7 +21,10 @@ enum ResType {
 
 impl Compiler {
     pub fn new() -> Self {
-        Self { counter: 0 }
+        Self {
+            counter: 0,
+            vars: HashMap::new(),
+        }
     }
 
     fn next_tmp(&mut self) -> String {
@@ -28,18 +33,28 @@ impl Compiler {
         tmp
     }
 
-    pub fn compile(&mut self, expr: Expr) -> Vec<String> {
+    pub fn compile(&mut self, exprs: Vec<Expr>) -> Vec<String> {
         let mut out = vec![];
         out.push("export function w $main() {".to_string());
         out.push("@start".to_string());
-        let (_tmp, ty, instructions) = self.compile_expr(&expr).unwrap();
-        for line in instructions {
-            out.push(format!("  {}", line));
+
+        let mut last_tmp = String::new();
+        let mut last_ty = ResType::Number;
+        let mut last_expr_str = String::new();
+
+        for expr in &exprs {
+            let (tmp, ty, instructions) = self.compile_expr(expr).unwrap();
+            for line in instructions {
+                out.push(format!("  {}", line));
+            }
+            last_expr_str = expr.as_str();
+            last_tmp = tmp;
+            last_ty = ty;
         }
-        let last = self.counter - 1;
-        let (printf_arg, fmt_spec) = match ty {
-            ResType::Number => (format!("d %t{}", last), "%g"),
-            ResType::Bool => (format!("w %t{}", last), "%d"),
+
+        let (printf_arg, fmt_spec) = match last_ty {
+            ResType::Number => (format!("d {}", last_tmp), "%g"),
+            ResType::Bool => (format!("w {}", last_tmp), "%d"),
         };
         out.push(format!("  call $printf(l $fmt, ..., {})", printf_arg));
         out.push("  ret 0".to_string());
@@ -47,8 +62,7 @@ impl Compiler {
         out.push("\n".to_string());
         out.push(format!(
             "data $fmt = {{ b \"QBE: {} = {}\\n\", b 0 }}",
-            expr.as_str(),
-            fmt_spec
+            last_expr_str, fmt_spec
         ));
         out
     }
@@ -181,8 +195,46 @@ impl Compiler {
                     }
                 }
             }
-            Expr::Variable { .. } => todo!(),
-            Expr::Assign { .. } => todo!(),
+            Expr::Variable { name } => {
+                let var_name = &name.lexeme;
+                match self.vars.get(var_name) {
+                    None => Err(QbeError::CompilationError(
+                        format!("undefined variable '{}'", var_name),
+                    ).into()),
+                    Some((slot, ty)) => {
+                        let (slot, ty) = (slot.clone(), ty.clone());
+                        let tmp = self.next_tmp();
+                        let instr = match ty {
+                            ResType::Number => format!("{} =d loadd {}", tmp, slot),
+                            ResType::Bool => format!("{} =w loadsw {}", tmp, slot),
+                        };
+                        Ok((tmp, ty, vec![instr]))
+                    }
+                }
+            }
+            Expr::Assign { name, value } => {
+                let var_name = name.lexeme.clone();
+                let (val_tmp, ty, mut instructions) = self.compile_expr(value)?;
+                let slot = match self.vars.get(&var_name) {
+                    Some((slot, _)) => slot.clone(),
+                    None => {
+                        let slot = self.next_tmp();
+                        let alloc = match ty {
+                            ResType::Number => format!("{} =l alloc8 8", slot),
+                            ResType::Bool => format!("{} =l alloc4 4", slot),
+                        };
+                        instructions.push(alloc);
+                        self.vars.insert(var_name, (slot.clone(), ty.clone()));
+                        slot
+                    }
+                };
+                let store = match ty {
+                    ResType::Number => format!("stored {}, {}", val_tmp, slot),
+                    ResType::Bool => format!("storew {}, {}", val_tmp, slot),
+                };
+                instructions.push(store);
+                Ok((val_tmp, ty, instructions))
+            }
             Expr::If { .. } => todo!(),
         }
     }
@@ -248,6 +300,42 @@ mod tests {
         let (tmp, ty, instrs) = compile_expr("2 <= 2");
         assert_eq!(ty, ResType::Bool);
         assert_eq!(instrs.last().unwrap(), &format!("{} =w cled %t0, %t1", tmp));
+    }
+
+    #[test]
+    fn assign_number() {
+        let (tmp, ty, instrs) = compile_expr("x = 42");
+        assert_eq!(ty, ResType::Number);
+        // alloc, then stored
+        assert!(instrs.iter().any(|i| i.contains("alloc8")));
+        assert!(instrs.iter().any(|i| i.contains("stored") && i.contains(&tmp)));
+    }
+
+    #[test]
+    fn assign_bool() {
+        let (tmp, ty, instrs) = compile_expr("flag = true");
+        assert_eq!(ty, ResType::Bool);
+        assert!(instrs.iter().any(|i| i.contains("alloc4")));
+        assert!(instrs.iter().any(|i| i.contains("storew") && i.contains(&tmp)));
+    }
+
+    #[test]
+    fn variable_read_number() {
+        let tokens = crate::lexer::parse_into_tokens("x = 5").unwrap();
+        let mut parser = crate::parser::Parser::new(tokens);
+        let assign = parser.parse();
+        let mut compiler = Compiler::new();
+        compiler.compile_expr(&assign).unwrap();
+
+        // now read x
+        let tokens = crate::lexer::parse_into_tokens("x").unwrap();
+        let mut parser = crate::parser::Parser::new(tokens);
+        let var = parser.parse();
+        let (tmp, ty, instrs) = compiler.compile_expr(&var).unwrap();
+        assert_eq!(ty, ResType::Number);
+        assert_eq!(instrs.len(), 1);
+        assert!(instrs[0].contains("loadd"));
+        assert!(instrs[0].starts_with(&tmp));
     }
 
     #[test]

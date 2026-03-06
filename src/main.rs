@@ -56,16 +56,10 @@ fn process_file(file_path: &str) -> Result<(), Error> {
     let content_str = &content.unwrap();
     let tokens = parse_into_tokens(content_str)?;
     let mut parser = Parser::new(tokens);
-    let expr = parser.parse();
-    info!(
-        "Expression {}; parsed: {}; result={}",
-        content_str.trim(),
-        expr.as_str(),
-        expr.eval_no_env().print()
-    );
+    let exprs = parser.parse_program();
 
     let mut compiler = Compiler::new();
-    let text = compiler.compile(expr);
+    let text = compiler.compile(exprs);
     println!("------------------");
     let mut file = File::create(".build/main.qbe")?;
     for line in text {

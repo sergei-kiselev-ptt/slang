@@ -29,6 +29,8 @@ pub enum TokenType {
     LogicalAnd,
     Bang,
 
+    Newline,
+
     // Keywords
     If,
     Else,
@@ -75,7 +77,8 @@ pub fn parse_into_tokens(input: &str) -> Result<Vec<Token>, Error> {
 
 fn scan_next_token(input: &Vec<char>, current: usize) -> Result<(Option<Token>, usize), Error> {
     match input[current] {
-        ' ' | '\t' | '\r' | '\n' => Ok((None, current + 1)),
+        ' ' | '\t' | '\r' => Ok((None, current + 1)),
+        '\n' => Ok((Some(Token { token_type: TokenType::Newline, lexeme: "\n".to_string() }), current + 1)),
         '-' => Ok((Some(minus()), current + 1)),
         '+' => Ok((Some(plus()), current + 1)),
         '*' => Ok((Some(star()), current + 1)),

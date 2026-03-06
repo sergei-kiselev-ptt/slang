@@ -50,7 +50,9 @@ impl Parser {
     }
 
     pub fn parse(&mut self) -> Expr {
+        self.skip_newlines();
         let expr = self.parse_expr();
+        self.skip_newlines();
         if !self.is_at_end() {
             error!(
                 "Parsed the expression, but there are unprocessed tokens: {:?}",
@@ -60,6 +62,22 @@ impl Parser {
         }
 
         return expr;
+    }
+
+    pub fn parse_program(&mut self) -> Vec<Expr> {
+        let mut exprs = vec![];
+        self.skip_newlines();
+        while !self.is_at_end() {
+            exprs.push(self.parse_expr());
+            self.skip_newlines();
+        }
+        exprs
+    }
+
+    fn skip_newlines(&mut self) {
+        while !self.is_at_end() && self.current().token_type == TokenType::Newline {
+            self.advance();
+        }
     }
 
     fn parse_expr(&mut self) -> Expr {
