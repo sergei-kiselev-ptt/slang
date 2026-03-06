@@ -164,8 +164,14 @@ impl Compiler {
                         Ok((tmp, ResType::Bool, instructions))
                     }
 
-                    TokenType::LogicalOr => todo!(),
-                    TokenType::LogicalAnd => todo!(),
+                    TokenType::LogicalOr => {
+                        instructions.push(format!("{} =w or {}, {}", tmp, l_tmp, r_tmp));
+                        Ok((tmp, ResType::Bool, instructions))
+                    }
+                    TokenType::LogicalAnd => {
+                        instructions.push(format!("{} =w and {}, {}", tmp, l_tmp, r_tmp));
+                        Ok((tmp, ResType::Bool, instructions))
+                    }
 
                     _ => {
                         let err_message =
@@ -242,6 +248,20 @@ mod tests {
         let (tmp, ty, instrs) = compile_expr("2 <= 2");
         assert_eq!(ty, ResType::Bool);
         assert_eq!(instrs.last().unwrap(), &format!("{} =w cled %t0, %t1", tmp));
+    }
+
+    #[test]
+    fn logical_and() {
+        let (tmp, ty, instrs) = compile_expr("true && false");
+        assert_eq!(ty, ResType::Bool);
+        assert_eq!(instrs.last().unwrap(), &format!("{} =w and %t0, %t1", tmp));
+    }
+
+    #[test]
+    fn logical_or() {
+        let (tmp, ty, instrs) = compile_expr("false || true");
+        assert_eq!(ty, ResType::Bool);
+        assert_eq!(instrs.last().unwrap(), &format!("{} =w or %t0, %t1", tmp));
     }
 
     #[test]
