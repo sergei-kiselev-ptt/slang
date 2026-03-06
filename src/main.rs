@@ -59,7 +59,10 @@ fn process_file(file_path: &str) -> Result<(), Error> {
     let exprs = parser.parse_program();
 
     let mut compiler = Compiler::new();
-    let text = compiler.compile(exprs);
+    let text = compiler.compile(exprs).map_err(|e| {
+        eprintln!("Compilation error: {}", e);
+        Error::new(std::io::ErrorKind::Other, e.to_string())
+    })?;
     println!("------------------");
     let mut file = File::create(".build/main.qbe")?;
     for line in text {

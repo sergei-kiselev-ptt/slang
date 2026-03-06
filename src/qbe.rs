@@ -33,7 +33,7 @@ impl Compiler {
         tmp
     }
 
-    pub fn compile(&mut self, exprs: Vec<Expr>) -> Vec<String> {
+    pub fn compile(&mut self, exprs: Vec<Expr>) -> Result<Vec<String>> {
         let mut out = vec![];
         out.push("export function w $main() {".to_string());
         out.push("@start".to_string());
@@ -43,7 +43,7 @@ impl Compiler {
         let mut last_expr_str = String::new();
 
         for expr in &exprs {
-            let (tmp, ty, instructions) = self.compile_expr(expr).unwrap();
+            let (tmp, ty, instructions) = self.compile_expr(expr)?;
             for line in instructions {
                 out.push(format!("  {}", line));
             }
@@ -64,7 +64,7 @@ impl Compiler {
             "data $fmt = {{ b \"QBE: {} = {}\\n\", b 0 }}",
             last_expr_str, fmt_spec
         ));
-        out
+        Ok(out)
     }
 
     fn compile_expr(&mut self, expr: &Expr) -> Result<(String, ResType, Vec<String>)> {
@@ -242,7 +242,7 @@ impl Compiler {
 
 #[derive(Error, Debug)]
 enum QbeError {
-    #[error("failed  to compile")]
+    #[error("{0}")]
     CompilationError(String),
 }
 
