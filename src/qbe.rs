@@ -198,9 +198,11 @@ impl Compiler {
             Expr::Variable { name } => {
                 let var_name = &name.lexeme;
                 match self.vars.get(var_name) {
-                    None => Err(QbeError::CompilationError(
-                        format!("undefined variable '{}'", var_name),
-                    ).into()),
+                    None => Err(QbeError::CompilationError(format!(
+                        "undefined variable '{}'",
+                        var_name
+                    ))
+                    .into()),
                     Some((slot, ty)) => {
                         let (slot, ty) = (slot.clone(), ty.clone());
                         let tmp = self.next_tmp();
@@ -308,7 +310,11 @@ mod tests {
         assert_eq!(ty, ResType::Number);
         // alloc, then stored
         assert!(instrs.iter().any(|i| i.contains("alloc8")));
-        assert!(instrs.iter().any(|i| i.contains("stored") && i.contains(&tmp)));
+        assert!(
+            instrs
+                .iter()
+                .any(|i| i.contains("stored") && i.contains(&tmp))
+        );
     }
 
     #[test]
@@ -316,7 +322,11 @@ mod tests {
         let (tmp, ty, instrs) = compile_expr("flag = true");
         assert_eq!(ty, ResType::Bool);
         assert!(instrs.iter().any(|i| i.contains("alloc4")));
-        assert!(instrs.iter().any(|i| i.contains("storew") && i.contains(&tmp)));
+        assert!(
+            instrs
+                .iter()
+                .any(|i| i.contains("storew") && i.contains(&tmp))
+        );
     }
 
     #[test]
