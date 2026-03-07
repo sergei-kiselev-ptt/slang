@@ -1,5 +1,9 @@
-x = 5
-while (x > 0) {
-    x = x - 1
+x = true
+y = 0
+if x {
+    y = 1
+} else {
+    y = 2
 }
-x
+
+y

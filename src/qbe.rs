@@ -19,6 +19,36 @@ enum ResType {
     Bool,   // QBE type 'w' (word)
 }
 
+impl ResType {
+    fn alloc_instr(&self, slot: &str) -> String {
+        match self {
+            ResType::Number => format!("{} =l alloc8 8", slot),
+            ResType::Bool => format!("{} =l alloc4 4", slot),
+        }
+    }
+
+    fn store_instr(&self, val: &str, slot: &str) -> String {
+        match self {
+            ResType::Number => format!("stored {}, {}", val, slot),
+            ResType::Bool => format!("storew {}, {}", val, slot),
+        }
+    }
+
+    fn load_instr(&self, tmp: &str, slot: &str) -> String {
+        match self {
+            ResType::Number => format!("{} =d loadd {}", tmp, slot),
+            ResType::Bool => format!("{} =w loadsw {}", tmp, slot),
+        }
+    }
+
+    fn init_default_instr(&self, tmp: &str) -> String {
+        match self {
+            ResType::Number => format!("{} =d copy d_0", tmp),
+            ResType::Bool => format!("{} =w copy 0", tmp),
+        }
+    }
+}
+
 impl Compiler {
     pub fn new() -> Self {
         Self {
@@ -71,6 +101,90 @@ impl Compiler {
         Ok(out)
     }
 
+    fn emit_arithmetic(
+        &mut self,
+        op: &TokenType,
+        l: &str,
+        r: &str,
+    ) -> Result<(String, ResType, String)> {
+        let opcode = match op {
+            TokenType::Plus => "add",
+            TokenType::Minus => "sub",
+            TokenType::Star => "mul",
+            TokenType::Slash => "div",
+            _ => {
+                return Err(QbeError::CompilationError(format!(
+                    "{:?} is not an arithmetic operator",
+                    op
+                ))
+                .into());
+            }
+        };
+        let tmp = self.next_tmp();
+        Ok((
+            tmp.clone(),
+            ResType::Number,
+            format!("{} =d {} {}, {}", tmp, opcode, l, r),
+        ))
+    }
+
+    fn emit_comparison(
+        &mut self,
+        op: &TokenType,
+        l: &str,
+        r: &str,
+        l_type: &ResType,
+    ) -> Result<(String, ResType, String)> {
+        let opcode = match (op, l_type) {
+            (TokenType::EqualEqual, ResType::Number) => "ceqd",
+            (TokenType::EqualEqual, ResType::Bool) => "ceqw",
+            (TokenType::BangEqual, ResType::Number) => "cned",
+            (TokenType::BangEqual, ResType::Bool) => "cnew",
+            (TokenType::Greater, _) => "cgtd",
+            (TokenType::GreaterEqual, _) => "cged",
+            (TokenType::Less, _) => "cltd",
+            (TokenType::LessEqual, _) => "cled",
+            _ => {
+                return Err(QbeError::CompilationError(format!(
+                    "{:?} is not a comparison operator",
+                    op
+                ))
+                .into());
+            }
+        };
+        let tmp = self.next_tmp();
+        Ok((
+            tmp.clone(),
+            ResType::Bool,
+            format!("{} =w {} {}, {}", tmp, opcode, l, r),
+        ))
+    }
+
+    fn emit_logical(
+        &mut self,
+        op: &TokenType,
+        l: &str,
+        r: &str,
+    ) -> Result<(String, ResType, String)> {
+        let opcode = match op {
+            TokenType::LogicalOr => "or",
+            TokenType::LogicalAnd => "and",
+            _ => {
+                return Err(QbeError::CompilationError(format!(
+                    "{:?} is not a logical operator",
+                    op
+                ))
+                .into());
+            }
+        };
+        let tmp = self.next_tmp();
+        Ok((
+            tmp.clone(),
+            ResType::Bool,
+            format!("{} =w {} {}, {}", tmp, opcode, l, r),
+        ))
+    }
+
     fn compile_expr(&mut self, expr: &Expr) -> Result<(String, ResType, Vec<String>)> {
         match expr {
             Expr::Literal(literal_value) => {
@@ -120,84 +234,36 @@ impl Compiler {
             } => {
                 let (l_tmp, l_type, l_instructions) = self.compile_expr(left)?;
                 let (r_tmp, r_type, r_instructions) = self.compile_expr(right)?;
-                let mut instructions = l_instructions.clone();
-                instructions.extend_from_slice(&r_instructions);
+                let mut instructions = l_instructions;
+                instructions.extend(r_instructions);
                 if l_type != r_type {
                     println!(
                         "operands in binary expression should be of the same type, got {:?}, {:?}",
                         l_type, r_type
                     )
                 }
-                let tmp = self.next_tmp();
-                match operator.token_type {
-                    TokenType::Minus => {
-                        instructions.push(format!("{} =d sub {}, {}", tmp, l_tmp, r_tmp));
-                        Ok((tmp, ResType::Number, instructions))
-                    }
-                    TokenType::Plus => {
-                        instructions.push(format!("{} =d add {}, {}", tmp, l_tmp, r_tmp));
-                        Ok((tmp, ResType::Number, instructions))
-                    }
-                    TokenType::Star => {
-                        instructions.push(format!("{} =d mul {}, {}", tmp, l_tmp, r_tmp));
-                        Ok((tmp, ResType::Number, instructions))
-                    }
-                    TokenType::Slash => {
-                        instructions.push(format!("{} =d div {}, {}", tmp, l_tmp, r_tmp));
-                        Ok((tmp, ResType::Number, instructions))
-                    }
 
-                    TokenType::EqualEqual => {
-                        let instr = if l_type == ResType::Number {
-                            format!("{} =w ceqd {}, {}", tmp, l_tmp, r_tmp)
-                        } else {
-                            format!("{} =w ceqw {}, {}", tmp, l_tmp, r_tmp)
-                        };
-                        instructions.push(instr);
-                        Ok((tmp, ResType::Bool, instructions))
+                use TokenType::*;
+                let (tmp, res_type, instr) = match operator.token_type {
+                    Plus | Minus | Star | Slash => {
+                        self.emit_arithmetic(&operator.token_type, &l_tmp, &r_tmp)?
                     }
-                    TokenType::BangEqual => {
-                        let instr = if l_type == ResType::Number {
-                            format!("{} =w cned {}, {}", tmp, l_tmp, r_tmp)
-                        } else {
-                            format!("{} =w cnew {}, {}", tmp, l_tmp, r_tmp)
-                        };
-                        instructions.push(instr);
-                        Ok((tmp, ResType::Bool, instructions))
+                    EqualEqual | BangEqual | Greater | GreaterEqual | Less | LessEqual => {
+                        self.emit_comparison(&operator.token_type, &l_tmp, &r_tmp, &l_type)?
                     }
-                    TokenType::Greater => {
-                        instructions.push(format!("{} =w cgtd {}, {}", tmp, l_tmp, r_tmp));
-                        Ok((tmp, ResType::Bool, instructions))
+                    LogicalOr | LogicalAnd => {
+                        self.emit_logical(&operator.token_type, &l_tmp, &r_tmp)?
                     }
-                    TokenType::GreaterEqual => {
-                        instructions.push(format!("{} =w cged {}, {}", tmp, l_tmp, r_tmp));
-                        Ok((tmp, ResType::Bool, instructions))
-                    }
-                    TokenType::Less => {
-                        instructions.push(format!("{} =w cltd {}, {}", tmp, l_tmp, r_tmp));
-                        Ok((tmp, ResType::Bool, instructions))
-                    }
-                    TokenType::LessEqual => {
-                        instructions.push(format!("{} =w cled {}, {}", tmp, l_tmp, r_tmp));
-                        Ok((tmp, ResType::Bool, instructions))
-                    }
-
-                    TokenType::LogicalOr => {
-                        instructions.push(format!("{} =w or {}, {}", tmp, l_tmp, r_tmp));
-                        Ok((tmp, ResType::Bool, instructions))
-                    }
-                    TokenType::LogicalAnd => {
-                        instructions.push(format!("{} =w and {}, {}", tmp, l_tmp, r_tmp));
-                        Ok((tmp, ResType::Bool, instructions))
-                    }
-
                     _ => {
-                        let err_message =
-                            format!("{} cannot be a binary operator", operator.lexeme);
-                        eprint!("{}", err_message);
-                        Err(QbeError::CompilationError(err_message).into())
+                        return Err(QbeError::CompilationError(format!(
+                            "{} cannot be a binary operator",
+                            operator.lexeme
+                        ))
+                        .into());
                     }
-                }
+                };
+                instructions.push(instr);
+                Ok((tmp, res_type, instructions))
             }
             Expr::Variable { name } => {
                 let var_name = &name.lexeme;
@@ -210,11 +276,7 @@ impl Compiler {
                     Some((slot, ty)) => {
                         let (slot, ty) = (slot.clone(), ty.clone());
                         let tmp = self.next_tmp();
-                        let instr = match ty {
-                            ResType::Number => format!("{} =d loadd {}", tmp, slot),
-                            ResType::Bool => format!("{} =w loadsw {}", tmp, slot),
-                        };
-                        Ok((tmp, ty, vec![instr]))
+                        Ok((tmp.clone(), ty.clone(), vec![ty.load_instr(&tmp, &slot)]))
                     }
                 }
             }
@@ -225,20 +287,12 @@ impl Compiler {
                     Some((slot, _)) => slot.clone(),
                     None => {
                         let slot = self.next_tmp();
-                        let alloc = match ty {
-                            ResType::Number => format!("{} =l alloc8 8", slot),
-                            ResType::Bool => format!("{} =l alloc4 4", slot),
-                        };
-                        instructions.push(alloc);
+                        instructions.push(ty.alloc_instr(&slot));
                         self.vars.insert(var_name, (slot.clone(), ty.clone()));
                         slot
                     }
                 };
-                let store = match ty {
-                    ResType::Number => format!("stored {}, {}", val_tmp, slot),
-                    ResType::Bool => format!("storew {}, {}", val_tmp, slot),
-                };
-                instructions.push(store);
+                instructions.push(ty.store_instr(&val_tmp, &slot));
                 Ok((val_tmp, ty, instructions))
             }
             Expr::While { condition, body } => {
@@ -246,9 +300,6 @@ impl Compiler {
                 let cond_label = format!("@cond_{}", id);
                 let body_label = format!("@body_{}", id);
                 let end_label = format!("@end_{}", id);
-
-                // Anchor the id before any sub-expression advances the counter
-                let _ = self.next_tmp();
 
                 let mut out = vec![];
                 out.push(format!("jmp {}", cond_label));
@@ -267,7 +318,7 @@ impl Compiler {
 
                 out.push(end_label);
                 let result_tmp = self.next_tmp();
-                out.push(format!("{} =d copy d_0", result_tmp));
+                out.push(ResType::Number.init_default_instr(&result_tmp));
 
                 Ok((result_tmp, ResType::Number, out))
             }
@@ -290,10 +341,7 @@ impl Compiler {
 
                 let mut out = cond_instrs;
 
-                out.push(match then_ty {
-                    ResType::Number => format!("{} =l alloc8 8", slot),
-                    ResType::Bool => format!("{} =l alloc4 4", slot),
-                });
+                out.push(then_ty.alloc_instr(&slot));
 
                 if let Some((else_tmp, _, else_instrs)) = else_compiled {
                     let else_label = format!("@else_{}", id);
@@ -301,47 +349,29 @@ impl Compiler {
 
                     out.push(then_label);
                     out.extend(then_instrs);
-                    out.push(match then_ty {
-                        ResType::Number => format!("stored {}, {}", then_tmp, slot),
-                        ResType::Bool => format!("storew {}, {}", then_tmp, slot),
-                    });
+                    out.push(then_ty.store_instr(&then_tmp, &slot));
                     out.push(format!("jmp {}", end_label));
 
                     out.push(else_label);
                     out.extend(else_instrs);
-                    out.push(match then_ty {
-                        ResType::Number => format!("stored {}, {}", else_tmp, slot),
-                        ResType::Bool => format!("storew {}, {}", else_tmp, slot),
-                    });
+                    out.push(then_ty.store_instr(&else_tmp, &slot));
                     out.push(format!("jmp {}", end_label));
                 } else {
                     // no else: initialize slot to type default, skip then if false
                     let default_tmp = self.next_tmp();
-                    out.push(match then_ty {
-                        ResType::Number => format!("{} =d copy d_0", default_tmp),
-                        ResType::Bool => format!("{} =w copy 0", default_tmp),
-                    });
-                    out.push(match then_ty {
-                        ResType::Number => format!("stored {}, {}", default_tmp, slot),
-                        ResType::Bool => format!("storew {}, {}", default_tmp, slot),
-                    });
+                    out.push(then_ty.init_default_instr(&default_tmp));
+                    out.push(then_ty.store_instr(&default_tmp, &slot));
                     out.push(format!("jnz {}, {}, {}", cond_tmp, then_label, end_label));
 
                     out.push(then_label);
                     out.extend(then_instrs);
-                    out.push(match then_ty {
-                        ResType::Number => format!("stored {}, {}", then_tmp, slot),
-                        ResType::Bool => format!("storew {}, {}", then_tmp, slot),
-                    });
+                    out.push(then_ty.store_instr(&then_tmp, &slot));
                     out.push(format!("jmp {}", end_label));
                 }
 
                 out.push(end_label);
                 let result_tmp = self.next_tmp();
-                out.push(match then_ty {
-                    ResType::Number => format!("{} =d loadd {}", result_tmp, slot),
-                    ResType::Bool => format!("{} =w loadsw {}", result_tmp, slot),
-                });
+                out.push(then_ty.load_instr(&result_tmp, &slot));
 
                 Ok((result_tmp, then_ty, out))
             }
