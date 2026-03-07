@@ -23,36 +23,29 @@ Source Code
     ↓
   AST (Expr enum)
     ↓
-  Cranelift JIT (jit.rs)
+  QBE Compiler (qbe.rs)
     ↓
-  Native Machine Code
+  QBE IR (.qbe file)
     ↓
-  Execute
+  QBE → Assembly → Native Binary
 ```
 
-### Backend Options (for future native compilation)
-- **Cranelift**: Current choice for JIT, can also do AOT compilation
-- **QBE**: Simpler alternative (~10k lines vs LLVM's millions), "70% of LLVM performance in 10% of code"
-- **LLVM**: Most optimized, but complex
+### Backend
+- **QBE**: Current backend. ~10k lines, "70% of LLVM performance in 10% of code". Handles both the IR generation and assembly output.
+- Run pipeline: `cargo run <file.sl>` → `.build/main.qbe` → `qbe` → `.build/out.s` → `cc` → `.build/out`
 
 ## Current State
 
 ### Implemented
 - **Lexer**: Full tokenization with comprehensive tests
-- **Parser**: Recursive descent parser producing AST
-- **AST**: Expression nodes (Literal, Unary, Binary, Variable, Assign)
-- **JIT Compiler**: Cranelift-based, compiles expressions to native code
-- **REPL**: Interactive mode with JIT compilation and variable persistence
+- **Parser**: Recursive descent parser producing AST; newlines as statement separators (insignificant inside expressions)
+- **AST**: `Literal`, `Unary`, `Binary`, `Variable`, `Assign`, `If`, `While`
+- **QBE Compiler**: Compiles to QBE IR, produces native binaries
+- **REPL**: Tree-walking interpreter (for quick experimentation)
 
-### JIT Features
-- Compiles each expression to native machine code
-- Proper type system: `Number(f64)` and `Bool(bool)` as separate types
-- Type inference for expressions
-- Persistent variable storage across REPL evaluations
-- ~1-5ms compilation latency per expression
-
-### Grammar (Expression-only)
+### Grammar
 ```
+<program>     ::= ( <expression> <NEWLINE>* )*
 <expression>  ::= <assignment>
 <assignment>  ::= <IDENTIFIER> "=" <assignment> | <logical_or>
 <logical_or>  ::= <logical_and> ( "||" <logical_and> )*
@@ -62,7 +55,10 @@ Source Code
 <term>        ::= <factor> ( ( "+" | "-" ) <factor> )*
 <factor>      ::= <unary> ( ( "*" | "/" ) <unary> )*
 <unary>       ::= ( "-" | "+" | "!" ) <unary> | <primary>
-<primary>     ::= <NUMBER> | <IDENTIFIER> | "true" | "false" | "(" <expression> ")"
+<primary>     ::= <NUMBER> | <IDENTIFIER> | "true" | "false"
+                | "(" <expression> ")"
+                | "if" <expression> "{" <expression> "}" ( "else" "{" <expression> "}" )?
+                | "while" <expression> "{" <expression>* "}"
 ```
 
 ### Supported Operations
@@ -72,6 +68,7 @@ Source Code
 - Logical: `&&`, `||`, `!`
 - Assignment: `=` (right-associative, chainable: `x = y = 1`)
 - Grouping: `()`
+- Control flow: `if`/`else`, `while`
 
 ### Value Types
 - `Number(f64)` - floating point numbers
@@ -85,9 +82,8 @@ src/
 ├── main.rs      # CLI entry point
 ├── lexer.rs     # Tokenization
 ├── parser.rs    # AST construction
-├── jit.rs       # Cranelift JIT compiler
-├── ir.rs        # Stack-based IR (legacy, may remove)
-├── repl.rs      # REPL + tree-walking interpreter (legacy)
+├── qbe.rs       # QBE IR compiler
+├── repl.rs      # REPL + tree-walking interpreter
 └── grammar.bnf  # Formal grammar spec
 examples/
 └── main.sl      # Example program
@@ -98,51 +94,34 @@ examples/
 ### Commands
 ```bash
 cargo build              # Build
-cargo test               # Run tests (120+ tests)
-cargo run -- --repl      # Start JIT REPL
-cargo run -- <file.sl>   # Execute file (uses old interpreter)
+cargo test               # Run tests (49 tests)
+cargo run -- <file.sl>   # Compile file to QBE IR
+cargo run -- --repl      # Start tree-walking REPL
+bash run.sh              # Full pipeline: compile → qbe → cc → run
 ```
 
-### REPL Usage
-```
-> 2 + 3
-5
-> x = 10
-10
-> y = 20
-20
-> x + y
-30
-> x > y
-false
-> flag = true
-true
-> !flag
-false
+### run.sh pipeline
+```bash
+cargo run ./examples/main.sl && qbe -o .build/out.s .build/main.qbe && cc .build/out.s -o .build/out && ./.build/out
 ```
 
 ### Testing
-- Lexer: 33+ tests
-- IR compiler: 12 tests
-- JIT: 21 tests (numbers, bools, arithmetic, comparisons, logical ops, variables)
+- Lexer: 33 tests
+- QBE compiler: 16 tests (literals, arithmetic, comparisons, logical ops, variables, if, while)
 
 ## Coding Conventions
 
-- Use `Result<T, String>` for JIT compilation errors
-- Use `JitValue` enum for runtime values
+- Use `Result<T, anyhow::Error>` for QBE compilation errors
+- Use `ResType` enum (`Number`, `Bool`) for compile-time type tracking
+- Labels in QBE IR use `@label_N` naming with counter-based unique IDs
 - Follow existing patterns in codebase
 - Add tests for new functionality
 
 ## Planned Next Steps
 
-### Extend Language
-1. Add statements: `let` (explicit declaration), `print`
-2. Add control flow: `if`/`else`, `while`
-3. Add functions
-
-### Native Compilation
-1. Add AOT compilation mode using Cranelift
-2. Or explore QBE as simpler backend
+1. `print` statement
+2. Functions
+3. `let` for explicit variable declaration
 
 ## Deferred
 - Structured error reporting with spans
