@@ -1,6 +1,5 @@
-x = 4
-if x > 5 {
-  x = 5
-} else {
-  x = x + 5
+x = 5
+while (x > 0) {
+    x = x - 1
 }
+x

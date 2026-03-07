@@ -241,6 +241,36 @@ impl Compiler {
                 instructions.push(store);
                 Ok((val_tmp, ty, instructions))
             }
+            Expr::While { condition, body } => {
+                let id = self.counter;
+                let cond_label = format!("@cond_{}", id);
+                let body_label = format!("@body_{}", id);
+                let end_label = format!("@end_{}", id);
+
+                // Anchor the id before any sub-expression advances the counter
+                let _ = self.next_tmp();
+
+                let mut out = vec![];
+                out.push(format!("jmp {}", cond_label));
+
+                out.push(cond_label.clone());
+                let (cond_tmp, _, cond_instrs) = self.compile_expr(condition)?;
+                out.extend(cond_instrs);
+                out.push(format!("jnz {}, {}, {}", cond_tmp, body_label, end_label));
+
+                out.push(body_label);
+                for expr in body {
+                    let (_, _, instrs) = self.compile_expr(expr)?;
+                    out.extend(instrs);
+                }
+                out.push(format!("jmp {}", cond_label));
+
+                out.push(end_label);
+                let result_tmp = self.next_tmp();
+                out.push(format!("{} =d copy d_0", result_tmp));
+
+                Ok((result_tmp, ResType::Number, out))
+            }
             Expr::If {
                 condition,
                 then_branch,

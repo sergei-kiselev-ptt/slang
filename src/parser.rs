@@ -35,6 +35,10 @@ pub enum Expr {
         then_branch: Box<Expr>,
         else_branch: Option<Box<Expr>>,
     },
+    While {
+        condition: Box<Expr>,
+        body: Vec<Expr>,
+    },
 }
 
 #[derive(Debug)]
@@ -250,6 +254,10 @@ impl Parser {
             return self.parse_if();
         }
 
+        if self.match_token(&[TokenType::While]) {
+            return self.parse_while();
+        }
+
         if self.match_token(&[TokenType::True]) {
             return Expr::Literal(LiteralValue::Bool(true));
         }
@@ -311,6 +319,27 @@ impl Parser {
         }
     }
 
+    fn parse_while(&mut self) -> Expr {
+        let condition = self.parse_expr();
+
+        if !self.match_token(&[TokenType::LeftBrace]) {
+            panic!("Expected '{{' after while condition");
+        }
+
+        let mut body = vec![];
+        while !self.match_token(&[TokenType::RightBrace]) {
+            if self.is_at_end() {
+                panic!("Expected '}}' to close while body");
+            }
+            body.push(self.parse_expr());
+        }
+
+        Expr::While {
+            condition: Box::new(condition),
+            body,
+        }
+    }
+
     fn previous(&self) -> &Token {
         &self.tokens[self.current - 1]
     }
@@ -363,6 +392,14 @@ impl Expr {
             } => format!("({} {} {})", operator.lexeme, left.as_str(), right.as_str()),
             Expr::Variable { name } => name.lexeme.clone(),
             Expr::Assign { name, value } => format!("({} {} {})", "=", name.lexeme, value.as_str()),
+            Expr::While { condition, body } => format!(
+                "(while {} {{ {} }})",
+                condition.as_str(),
+                body.iter()
+                    .map(|e| e.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
             Expr::If {
                 condition,
                 then_branch,

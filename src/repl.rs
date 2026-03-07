@@ -35,10 +35,6 @@ pub fn run_repl() {
 }
 
 impl Expr {
-    pub fn eval_no_env(&self) -> Value {
-        self.eval(&mut Environment::new())
-    }
-
     fn eval(&self, env: &mut Environment) -> Value {
         match self {
             Expr::Literal(literal_value) => match literal_value {
@@ -81,6 +77,25 @@ impl Expr {
                 let val = value.eval(env);
                 env.set(name.lexeme.clone(), val.clone());
                 val
+            }
+            Expr::While { condition, body } => {
+                loop {
+                    match condition.eval(env) {
+                        Value::Bool(true) => {
+                            for expr in body {
+                                expr.eval(env);
+                            }
+                        }
+                        Value::Bool(false) => break,
+                        other => {
+                            return Value::Error(format!(
+                                "while condition must be boolean, got {:?}",
+                                other
+                            ));
+                        }
+                    }
+                }
+                Value::Number(0.0)
             }
             Expr::If {
                 condition,
