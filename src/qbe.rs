@@ -8,95 +8,7 @@ use crate::{
     parser::{Expr, LiteralValue, TypeAnnotation},
 };
 
-#[derive(Clone)]
-struct FuncSig {
-    params: Vec<(String, ResType)>,
-    return_type: ResType,
-}
-
-pub struct Compiler {
-    counter: usize,
-    vars: HashMap<String, (String, ResType)>, // name -> (stack_slot_tmp, type)
-    functions: HashMap<String, FuncSig>,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-enum ResType {
-    Number, // QBE type 'd' (double)
-    Bool,   // QBE type 'w' (word)
-}
-
-impl ResType {
-    fn alloc_instr(&self, slot: &str) -> String {
-        match self {
-            ResType::Number => format!("{} =l alloc8 8", slot),
-            ResType::Bool => format!("{} =l alloc4 4", slot),
-        }
-    }
-
-    fn store_instr(&self, val: &str, slot: &str) -> String {
-        match self {
-            ResType::Number => format!("stored {}, {}", val, slot),
-            ResType::Bool => format!("storew {}, {}", val, slot),
-        }
-    }
-
-    fn load_instr(&self, tmp: &str, slot: &str) -> String {
-        match self {
-            ResType::Number => format!("{} =d loadd {}", tmp, slot),
-            ResType::Bool => format!("{} =w loadsw {}", tmp, slot),
-        }
-    }
-
-    fn init_default_instr(&self, tmp: &str) -> String {
-        match self {
-            ResType::Number => format!("{} =d copy d_0", tmp),
-            ResType::Bool => format!("{} =w copy 0", tmp),
-        }
-    }
-
-    fn qbe_abi_type(&self) -> &str {
-        match self {
-            ResType::Number => "d",
-            ResType::Bool => "w",
-        }
-    }
-}
-
-fn last_is_terminator(instrs: &[String]) -> bool {
-    instrs
-        .iter()
-        .rev()
-        .find(|i| !i.trim().is_empty() && !i.trim_start().starts_with('@'))
-        .map(|i| {
-            let s = i.trim();
-            s.starts_with("ret") || s.starts_with("jmp ") || s.starts_with("jnz ")
-        })
-        .unwrap_or(false)
-}
-
-fn res_type_from_annotation(ann: &TypeAnnotation) -> ResType {
-    match ann {
-        TypeAnnotation::Num => ResType::Number,
-        TypeAnnotation::Bool => ResType::Bool,
-    }
-}
-
 impl Compiler {
-    pub fn new() -> Self {
-        Self {
-            counter: 0,
-            vars: HashMap::new(),
-            functions: HashMap::new(),
-        }
-    }
-
-    fn next_tmp(&mut self) -> String {
-        let tmp = format!("%t{}", self.counter);
-        self.counter += 1;
-        tmp
-    }
-
     pub fn compile(&mut self, exprs: Vec<Expr>) -> Result<Vec<String>> {
         let mut func_defs = vec![];
         let mut main_exprs = vec![];
@@ -154,6 +66,20 @@ impl Compiler {
         out.push("data $str_true_nl = { b \"true\\n\", b 0 }".to_string());
         out.push("data $str_false_nl = { b \"false\\n\", b 0 }".to_string());
         Ok(out)
+    }
+
+    pub fn new() -> Self {
+        Self {
+            counter: 0,
+            vars: HashMap::new(),
+            functions: HashMap::new(),
+        }
+    }
+
+    fn next_tmp(&mut self) -> String {
+        let tmp = format!("%t{}", self.counter);
+        self.counter += 1;
+        tmp
     }
 
     fn compile_func_def(
@@ -316,206 +242,21 @@ impl Compiler {
 
     fn compile_expr(&mut self, expr: &Expr) -> Result<(String, ResType, Vec<String>)> {
         match expr {
-            Expr::Literal(literal_value) => {
-                let tmp = self.next_tmp();
-                match literal_value {
-                    LiteralValue::Number(n) => Ok((
-                        tmp.clone(),
-                        ResType::Number,
-                        vec![format!("{} =d copy d_{}", tmp, n)],
-                    )),
-                    LiteralValue::Bool(b) => {
-                        let val = if *b { 1 } else { 0 };
-                        Ok((
-                            tmp.clone(),
-                            ResType::Bool,
-                            vec![format!("{} =w copy {}", tmp, val)],
-                        ))
-                    }
-                    LiteralValue::String(_) => todo!("strings not yet supported"),
-                }
-            }
-
-            Expr::Unary { operator, right } => {
-                let (right_tmp, _right_ty, mut instructions) = self.compile_expr(right)?;
-                let tmp = self.next_tmp();
-                match operator.token_type {
-                    TokenType::Minus => {
-                        instructions.push(format!("{} =d neg d_{}", tmp, right_tmp));
-                        Ok((tmp, ResType::Number, instructions))
-                    }
-                    TokenType::Plus => {
-                        instructions.push(format!("{} =d copy d_{}", tmp, right_tmp));
-                        Ok((tmp, ResType::Number, instructions))
-                    }
-                    TokenType::Bang => {
-                        instructions.push(format!("{} =w ceqw {}, 0", tmp, right_tmp));
-                        Ok((tmp, ResType::Bool, instructions))
-                    }
-                    _ => panic!("Unknown unary operator: {:?}", operator.token_type),
-                }
-            }
-
+            Expr::Literal(literal_value) => self.compile_literal(literal_value),
+            Expr::Unary { operator, right } => self.compile_unary(operator, right),
             Expr::Binary {
                 left,
                 operator,
                 right,
-            } => {
-                let (l_tmp, l_type, l_instructions) = self.compile_expr(left)?;
-                let (r_tmp, r_type, r_instructions) = self.compile_expr(right)?;
-                let mut instructions = l_instructions;
-                instructions.extend(r_instructions);
-                if l_type != r_type {
-                    println!(
-                        "operands in binary expression should be of the same type, got {:?}, {:?}",
-                        l_type, r_type
-                    )
-                }
-
-                use TokenType::*;
-                let (tmp, res_type, instr) = match operator.token_type {
-                    Plus | Minus | Star | Slash => {
-                        self.emit_arithmetic(&operator.token_type, &l_tmp, &r_tmp)?
-                    }
-                    EqualEqual | BangEqual | Greater | GreaterEqual | Less | LessEqual => {
-                        self.emit_comparison(&operator.token_type, &l_tmp, &r_tmp, &l_type)?
-                    }
-                    LogicalOr | LogicalAnd => {
-                        self.emit_logical(&operator.token_type, &l_tmp, &r_tmp)?
-                    }
-                    _ => {
-                        return Err(QbeError::CompilationError(format!(
-                            "{} cannot be a binary operator",
-                            operator.lexeme
-                        ))
-                        .into());
-                    }
-                };
-                instructions.push(instr);
-                Ok((tmp, res_type, instructions))
-            }
-            Expr::Variable { name } => {
-                let var_name = &name.lexeme;
-                match self.vars.get(var_name) {
-                    None => Err(QbeError::CompilationError(format!(
-                        "undefined variable '{}'",
-                        var_name
-                    ))
-                    .into()),
-                    Some((slot, ty)) => {
-                        let (slot, ty) = (slot.clone(), ty.clone());
-                        let tmp = self.next_tmp();
-                        Ok((tmp.clone(), ty.clone(), vec![ty.load_instr(&tmp, &slot)]))
-                    }
-                }
-            }
-            Expr::Assign { name, value } => {
-                let var_name = name.lexeme.clone();
-                let (val_tmp, ty, mut instructions) = self.compile_expr(value)?;
-                let slot = match self.vars.get(&var_name) {
-                    Some((slot, _)) => slot.clone(),
-                    None => {
-                        let slot = self.next_tmp();
-                        instructions.push(ty.alloc_instr(&slot));
-                        self.vars.insert(var_name, (slot.clone(), ty.clone()));
-                        slot
-                    }
-                };
-                instructions.push(ty.store_instr(&val_tmp, &slot));
-                Ok((val_tmp, ty, instructions))
-            }
-            Expr::While { condition, body } => {
-                let id = self.counter;
-                let cond_label = format!("@cond_{}", id);
-                let body_label = format!("@body_{}", id);
-                let end_label = format!("@end_{}", id);
-
-                let mut out = vec![];
-                out.push(format!("jmp {}", cond_label));
-
-                out.push(cond_label.clone());
-                let (cond_tmp, _, cond_instrs) = self.compile_expr(condition)?;
-                out.extend(cond_instrs);
-                out.push(format!("jnz {}, {}, {}", cond_tmp, body_label, end_label));
-
-                out.push(body_label);
-                let (_, _, body_instrs) = self.compile_block(body)?;
-                let body_terminates = last_is_terminator(&body_instrs);
-                out.extend(body_instrs);
-                if !body_terminates {
-                    out.push(format!("jmp {}", cond_label));
-                }
-
-                out.push(end_label);
-                let result_tmp = self.next_tmp();
-                out.push(ResType::Number.init_default_instr(&result_tmp));
-
-                Ok((result_tmp, ResType::Number, out))
-            }
+            } => self.compile_binary_expr(left, operator, right),
+            Expr::Variable { name } => self.compile_var(name),
+            Expr::Assign { name, value } => self.compile_assign(name, value),
+            Expr::While { condition, body } => self.compile_while(condition, body),
             Expr::If {
                 condition,
                 then_branch,
                 else_branch,
-            } => {
-                let (cond_tmp, _, cond_instrs) = self.compile_expr(condition)?;
-
-                // Compile both branches to determine type
-                let (then_tmp, then_ty, then_instrs) = self.compile_block(then_branch)?;
-                let else_compiled = else_branch
-                    .as_ref()
-                    .map(|eb| self.compile_block(eb))
-                    .transpose()?;
-
-                let id = self.counter;
-                let slot = self.next_tmp();
-                let then_label = format!("@then_{}", id);
-                let end_label = format!("@end_{}", id);
-
-                let mut out = cond_instrs;
-                out.push(then_ty.alloc_instr(&slot));
-
-                let then_terminates = last_is_terminator(&then_instrs);
-
-                if let Some((else_tmp, _, else_instrs)) = else_compiled {
-                    let else_label = format!("@else_{}", id);
-                    let else_terminates = last_is_terminator(&else_instrs);
-
-                    out.push(format!("jnz {}, {}, {}", cond_tmp, then_label, else_label));
-
-                    out.push(then_label);
-                    out.extend(then_instrs);
-                    if !then_terminates {
-                        out.push(then_ty.store_instr(&then_tmp, &slot));
-                        out.push(format!("jmp {}", end_label));
-                    }
-
-                    out.push(else_label);
-                    out.extend(else_instrs);
-                    if !else_terminates {
-                        out.push(then_ty.store_instr(&else_tmp, &slot));
-                        out.push(format!("jmp {}", end_label));
-                    }
-                } else {
-                    // no else: initialize slot to type default, skip then if false
-                    let default_tmp = self.next_tmp();
-                    out.push(then_ty.init_default_instr(&default_tmp));
-                    out.push(then_ty.store_instr(&default_tmp, &slot));
-                    out.push(format!("jnz {}, {}, {}", cond_tmp, then_label, end_label));
-
-                    out.push(then_label);
-                    out.extend(then_instrs);
-                    if !then_terminates {
-                        out.push(then_ty.store_instr(&then_tmp, &slot));
-                        out.push(format!("jmp {}", end_label));
-                    }
-                }
-
-                out.push(end_label);
-                let result_tmp = self.next_tmp();
-                out.push(then_ty.load_instr(&result_tmp, &slot));
-
-                Ok((result_tmp, then_ty, out))
-            }
+            } => self.compile_if(condition, then_branch, else_branch),
             Expr::Return { value } => {
                 let (val_tmp, ty, mut instructions) = self.compile_expr(value)?;
                 instructions.push(format!("ret {}", val_tmp));
@@ -525,74 +266,305 @@ impl Compiler {
                 "function definitions must be at the top level".to_string(),
             )
             .into()),
-            Expr::Call { name, args } => {
-                let func_name = &name.lexeme;
-                let sig = self
-                    .functions
-                    .get(func_name)
-                    .ok_or_else(|| {
-                        QbeError::CompilationError(format!("undefined function '{}'", func_name))
-                    })?
-                    .clone();
+            Expr::Call { name, args } => self.compile_func_call(name, args),
+            Expr::Print { value } => self.compile_print(value),
+        }
+    }
 
-                if args.len() != sig.params.len() {
-                    return Err(QbeError::CompilationError(format!(
-                        "function '{}' expects {} arguments, got {}",
-                        func_name,
-                        sig.params.len(),
-                        args.len()
-                    ))
-                    .into());
-                }
-
-                let mut instructions = vec![];
-                let mut arg_tmps: Vec<(String, ResType)> = vec![];
-                for (arg_expr, (_, param_ty)) in args.iter().zip(sig.params.iter()) {
-                    let (arg_tmp, _, arg_instrs) = self.compile_expr(arg_expr)?;
-                    instructions.extend(arg_instrs);
-                    arg_tmps.push((arg_tmp, param_ty.clone()));
-                }
-
-                let result_tmp = self.next_tmp();
-                let ret_abi = sig.return_type.qbe_abi_type();
-                let args_str = arg_tmps
-                    .iter()
-                    .map(|(tmp, ty)| format!("{} {}", ty.qbe_abi_type(), tmp))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                instructions.push(format!(
-                    "{} ={} call ${}({})",
-                    result_tmp, ret_abi, func_name, args_str
-                ));
-
-                Ok((result_tmp, sig.return_type.clone(), instructions))
+    fn compile_literal(
+        &mut self,
+        literal_value: &LiteralValue,
+    ) -> std::result::Result<(String, ResType, Vec<String>), anyhow::Error> {
+        let tmp = self.next_tmp();
+        match literal_value {
+            LiteralValue::Number(n) => Ok((
+                tmp.clone(),
+                ResType::Number,
+                vec![format!("{} =d copy d_{}", tmp, n)],
+            )),
+            LiteralValue::Bool(b) => {
+                let val = if *b { 1 } else { 0 };
+                Ok((
+                    tmp.clone(),
+                    ResType::Bool,
+                    vec![format!("{} =w copy {}", tmp, val)],
+                ))
             }
-            Expr::Print { value } => {
-                let (val_tmp, ty, mut instructions) = self.compile_expr(value)?;
-                match ty {
-                    ResType::Number => {
-                        instructions
-                            .push(format!("call $printf(l $fmt_print_d, ..., d {})", val_tmp));
-                    }
-                    ResType::Bool => {
-                        let id = self.counter;
-                        let _ = self.next_tmp(); // reserve id
-                        let true_label = format!("@print_true_{}", id);
-                        let false_label = format!("@print_false_{}", id);
-                        let end_label = format!("@print_end_{}", id);
-                        instructions
-                            .push(format!("jnz {}, {}, {}", val_tmp, true_label, false_label));
-                        instructions.push(true_label);
-                        instructions.push("call $printf(l $str_true_nl)".to_string());
-                        instructions.push(format!("jmp {}", end_label));
-                        instructions.push(false_label);
-                        instructions.push("call $printf(l $str_false_nl)".to_string());
-                        instructions.push(end_label);
-                    }
-                }
-                Ok((val_tmp, ty, instructions))
+            LiteralValue::String(_) => todo!("strings not yet supported"),
+        }
+    }
+
+    fn compile_unary(
+        &mut self,
+        operator: &crate::lexer::Token,
+        right: &Box<Expr>,
+    ) -> std::result::Result<(String, ResType, Vec<String>), anyhow::Error> {
+        let (right_tmp, _right_ty, mut instructions) = self.compile_expr(right)?;
+        let tmp = self.next_tmp();
+        match operator.token_type {
+            TokenType::Minus => {
+                instructions.push(format!("{} =d neg d_{}", tmp, right_tmp));
+                Ok((tmp, ResType::Number, instructions))
+            }
+            TokenType::Plus => {
+                instructions.push(format!("{} =d copy d_{}", tmp, right_tmp));
+                Ok((tmp, ResType::Number, instructions))
+            }
+            TokenType::Bang => {
+                instructions.push(format!("{} =w ceqw {}, 0", tmp, right_tmp));
+                Ok((tmp, ResType::Bool, instructions))
+            }
+            _ => panic!("Unknown unary operator: {:?}", operator.token_type),
+        }
+    }
+
+    fn compile_var(
+        &mut self,
+        name: &crate::lexer::Token,
+    ) -> std::result::Result<(String, ResType, Vec<String>), anyhow::Error> {
+        let var_name = &name.lexeme;
+        match self.vars.get(var_name) {
+            None => {
+                Err(QbeError::CompilationError(format!("undefined variable '{}'", var_name)).into())
+            }
+            Some((slot, ty)) => {
+                let (slot, ty) = (slot.clone(), ty.clone());
+                let tmp = self.next_tmp();
+                Ok((tmp.clone(), ty.clone(), vec![ty.load_instr(&tmp, &slot)]))
             }
         }
+    }
+
+    fn compile_assign(
+        &mut self,
+        name: &crate::lexer::Token,
+        value: &Box<Expr>,
+    ) -> std::result::Result<(String, ResType, Vec<String>), anyhow::Error> {
+        let var_name = name.lexeme.clone();
+        let (val_tmp, ty, mut instructions) = self.compile_expr(value)?;
+        let slot = match self.vars.get(&var_name) {
+            Some((slot, _)) => slot.clone(),
+            None => {
+                let slot = self.next_tmp();
+                instructions.push(ty.alloc_instr(&slot));
+                self.vars.insert(var_name, (slot.clone(), ty.clone()));
+                slot
+            }
+        };
+        instructions.push(ty.store_instr(&val_tmp, &slot));
+        Ok((val_tmp, ty, instructions))
+    }
+
+    fn compile_while(
+        &mut self,
+        condition: &Box<Expr>,
+        body: &Vec<Expr>,
+    ) -> std::result::Result<(String, ResType, Vec<String>), anyhow::Error> {
+        let id = self.counter;
+        let cond_label = format!("@cond_{}", id);
+        let body_label = format!("@body_{}", id);
+        let end_label = format!("@end_{}", id);
+        let mut out = vec![];
+        out.push(format!("jmp {}", cond_label));
+        out.push(cond_label.clone());
+        let (cond_tmp, _, cond_instrs) = self.compile_expr(condition)?;
+        out.extend(cond_instrs);
+        out.push(format!("jnz {}, {}, {}", cond_tmp, body_label, end_label));
+        out.push(body_label);
+        let (_, _, body_instrs) = self.compile_block(body)?;
+        let body_terminates = last_is_terminator(&body_instrs);
+        out.extend(body_instrs);
+        if !body_terminates {
+            out.push(format!("jmp {}", cond_label));
+        }
+        out.push(end_label);
+        let result_tmp = self.next_tmp();
+        out.push(ResType::Number.init_default_instr(&result_tmp));
+        Ok((result_tmp, ResType::Number, out))
+    }
+
+    fn compile_if(
+        &mut self,
+        condition: &Box<Expr>,
+        then_branch: &Vec<Expr>,
+        else_branch: &Option<Vec<Expr>>,
+    ) -> std::result::Result<(String, ResType, Vec<String>), anyhow::Error> {
+        let (cond_tmp, _, cond_instrs) = self.compile_expr(condition)?;
+        let (then_tmp, then_ty, then_instrs) = self.compile_block(then_branch)?;
+        let else_compiled = else_branch
+            .as_ref()
+            .map(|eb| self.compile_block(eb))
+            .transpose()?;
+        let id = self.counter;
+        let slot = self.next_tmp();
+        let then_label = format!("@then_{}", id);
+        let end_label = format!("@end_{}", id);
+        let mut out = cond_instrs;
+        out.push(then_ty.alloc_instr(&slot));
+        let then_terminates = last_is_terminator(&then_instrs);
+        if let Some((else_tmp, _, else_instrs)) = else_compiled {
+            let else_label = format!("@else_{}", id);
+            let else_terminates = last_is_terminator(&else_instrs);
+
+            out.push(format!("jnz {}, {}, {}", cond_tmp, then_label, else_label));
+
+            out.push(then_label);
+            out.extend(then_instrs);
+            if !then_terminates {
+                out.push(then_ty.store_instr(&then_tmp, &slot));
+                out.push(format!("jmp {}", end_label));
+            }
+
+            out.push(else_label);
+            out.extend(else_instrs);
+            if !else_terminates {
+                out.push(then_ty.store_instr(&else_tmp, &slot));
+                out.push(format!("jmp {}", end_label));
+            }
+        } else {
+            // no else: initialize slot to type default, skip then if false
+            let default_tmp = self.next_tmp();
+            out.push(then_ty.init_default_instr(&default_tmp));
+            out.push(then_ty.store_instr(&default_tmp, &slot));
+            out.push(format!("jnz {}, {}, {}", cond_tmp, then_label, end_label));
+
+            out.push(then_label);
+            out.extend(then_instrs);
+            if !then_terminates {
+                out.push(then_ty.store_instr(&then_tmp, &slot));
+                out.push(format!("jmp {}", end_label));
+            }
+        }
+        out.push(end_label);
+        let result_tmp = self.next_tmp();
+        out.push(then_ty.load_instr(&result_tmp, &slot));
+        Ok((result_tmp, then_ty, out))
+    }
+
+    fn compile_func_call(
+        &mut self,
+        name: &crate::lexer::Token,
+        args: &Vec<Expr>,
+    ) -> std::result::Result<(String, ResType, Vec<String>), anyhow::Error> {
+        let func_name = &name.lexeme;
+        let sig = self
+            .functions
+            .get(func_name)
+            .ok_or_else(|| {
+                QbeError::CompilationError(format!("undefined function '{}'", func_name))
+            })?
+            .clone();
+        if args.len() != sig.params.len() {
+            return Err(QbeError::CompilationError(format!(
+                "function '{}' expects {} arguments, got {}",
+                func_name,
+                sig.params.len(),
+                args.len()
+            ))
+            .into());
+        }
+        let mut instructions = vec![];
+        let mut arg_tmps: Vec<(String, ResType)> = vec![];
+        for (arg_expr, (_, param_ty)) in args.iter().zip(sig.params.iter()) {
+            let (arg_tmp, _, arg_instrs) = self.compile_expr(arg_expr)?;
+            instructions.extend(arg_instrs);
+            arg_tmps.push((arg_tmp, param_ty.clone()));
+        }
+        let result_tmp = self.next_tmp();
+        let ret_abi = sig.return_type.qbe_abi_type();
+        let args_str = arg_tmps
+            .iter()
+            .map(|(tmp, ty)| format!("{} {}", ty.qbe_abi_type(), tmp))
+            .collect::<Vec<_>>()
+            .join(", ");
+        instructions.push(format!(
+            "{} ={} call ${}({})",
+            result_tmp, ret_abi, func_name, args_str
+        ));
+        Ok((result_tmp, sig.return_type.clone(), instructions))
+    }
+
+    fn compile_print(
+        &mut self,
+        value: &Box<Expr>,
+    ) -> std::result::Result<(String, ResType, Vec<String>), anyhow::Error> {
+        let (val_tmp, ty, mut instructions) = self.compile_expr(value)?;
+        match ty {
+            ResType::Number => {
+                instructions.push(format!("call $printf(l $fmt_print_d, ..., d {})", val_tmp));
+            }
+            ResType::Bool => {
+                let id = self.counter;
+                let _ = self.next_tmp(); // reserve id
+                let true_label = format!("@print_true_{}", id);
+                let false_label = format!("@print_false_{}", id);
+                let end_label = format!("@print_end_{}", id);
+                instructions.push(format!("jnz {}, {}, {}", val_tmp, true_label, false_label));
+                instructions.push(true_label);
+                instructions.push("call $printf(l $str_true_nl)".to_string());
+                instructions.push(format!("jmp {}", end_label));
+                instructions.push(false_label);
+                instructions.push("call $printf(l $str_false_nl)".to_string());
+                instructions.push(end_label);
+            }
+        }
+        Ok((val_tmp, ty, instructions))
+    }
+
+    fn compile_binary_expr(
+        &mut self,
+        left: &Box<Expr>,
+        operator: &crate::lexer::Token,
+        right: &Box<Expr>,
+    ) -> std::result::Result<(String, ResType, Vec<String>), anyhow::Error> {
+        let (l_tmp, l_type, l_instructions) = self.compile_expr(left)?;
+        let (r_tmp, r_type, r_instructions) = self.compile_expr(right)?;
+        let mut instructions = l_instructions;
+        instructions.extend(r_instructions);
+        if l_type != r_type {
+            println!(
+                "operands in binary expression should be of the same type, got {:?}, {:?}",
+                l_type, r_type
+            )
+        }
+        use TokenType::*;
+        let (tmp, res_type, instr) = match operator.token_type {
+            Plus | Minus | Star | Slash => {
+                self.emit_arithmetic(&operator.token_type, &l_tmp, &r_tmp)?
+            }
+            EqualEqual | BangEqual | Greater | GreaterEqual | Less | LessEqual => {
+                self.emit_comparison(&operator.token_type, &l_tmp, &r_tmp, &l_type)?
+            }
+            LogicalOr | LogicalAnd => self.emit_logical(&operator.token_type, &l_tmp, &r_tmp)?,
+            _ => {
+                return Err(QbeError::CompilationError(format!(
+                    "{} cannot be a binary operator",
+                    operator.lexeme
+                ))
+                .into());
+            }
+        };
+        instructions.push(instr);
+        Ok((tmp, res_type, instructions))
+    }
+}
+
+fn last_is_terminator(instrs: &[String]) -> bool {
+    instrs
+        .iter()
+        .rev()
+        .find(|i| !i.trim().is_empty() && !i.trim_start().starts_with('@'))
+        .map(|i| {
+            let s = i.trim();
+            s.starts_with("ret") || s.starts_with("jmp ") || s.starts_with("jnz ")
+        })
+        .unwrap_or(false)
+}
+
+fn res_type_from_annotation(ann: &TypeAnnotation) -> ResType {
+    match ann {
+        TypeAnnotation::Num => ResType::Number,
+        TypeAnnotation::Bool => ResType::Bool,
     }
 }
 
@@ -600,6 +572,61 @@ impl Compiler {
 enum QbeError {
     #[error("{0}")]
     CompilationError(String),
+}
+
+#[derive(Clone)]
+struct FuncSig {
+    params: Vec<(String, ResType)>,
+    return_type: ResType,
+}
+
+pub struct Compiler {
+    counter: usize,
+    vars: HashMap<String, (String, ResType)>, // name -> (stack_slot_tmp, type)
+    functions: HashMap<String, FuncSig>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+enum ResType {
+    Number, // QBE type 'd' (double)
+    Bool,   // QBE type 'w' (word)
+}
+
+impl ResType {
+    fn alloc_instr(&self, slot: &str) -> String {
+        match self {
+            ResType::Number => format!("{} =l alloc8 8", slot),
+            ResType::Bool => format!("{} =l alloc4 4", slot),
+        }
+    }
+
+    fn store_instr(&self, val: &str, slot: &str) -> String {
+        match self {
+            ResType::Number => format!("stored {}, {}", val, slot),
+            ResType::Bool => format!("storew {}, {}", val, slot),
+        }
+    }
+
+    fn load_instr(&self, tmp: &str, slot: &str) -> String {
+        match self {
+            ResType::Number => format!("{} =d loadd {}", tmp, slot),
+            ResType::Bool => format!("{} =w loadsw {}", tmp, slot),
+        }
+    }
+
+    fn init_default_instr(&self, tmp: &str) -> String {
+        match self {
+            ResType::Number => format!("{} =d copy d_0", tmp),
+            ResType::Bool => format!("{} =w copy 0", tmp),
+        }
+    }
+
+    fn qbe_abi_type(&self) -> &str {
+        match self {
+            ResType::Number => "d",
+            ResType::Bool => "w",
+        }
+    }
 }
 
 #[cfg(test)]
