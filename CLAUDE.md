@@ -39,13 +39,17 @@ Source Code
 ### Implemented
 - **Lexer**: Full tokenization with comprehensive tests
 - **Parser**: Recursive descent parser producing AST; newlines as statement separators (insignificant inside expressions)
-- **AST**: `Literal`, `Unary`, `Binary`, `Variable`, `Assign`, `If`, `While`
+- **AST**: `Literal`, `Unary`, `Binary`, `Variable`, `Assign`, `If`, `While`, `Print`, `FuncDef`, `Call`
 - **QBE Compiler**: Compiles to QBE IR, produces native binaries
 - **REPL**: Tree-walking interpreter (for quick experimentation)
 
 ### Grammar
 ```
-<program>     ::= ( <expression> <NEWLINE>* )*
+<program>     ::= ( <func_def> | <expression> <NEWLINE>* )*
+<func_def>    ::= "func" <IDENTIFIER> "(" <params>? ")" "->" <type> "{" <expression>* "}"
+<params>      ::= <param> ( "," <param> )*
+<param>       ::= <IDENTIFIER> ":" <type>
+<type>        ::= "num" | "bool"
 <expression>  ::= <assignment>
 <assignment>  ::= <IDENTIFIER> "=" <assignment> | <logical_or>
 <logical_or>  ::= <logical_and> ( "||" <logical_and> )*
@@ -59,6 +63,9 @@ Source Code
                 | "(" <expression> ")"
                 | "if" <expression> "{" <expression> "}" ( "else" "{" <expression> "}" )?
                 | "while" <expression> "{" <expression>* "}"
+                | "print" <expression>
+                | <IDENTIFIER> "(" <args>? ")"
+<args>        ::= <expression> ( "," <expression> )*
 ```
 
 ### Supported Operations
@@ -69,6 +76,8 @@ Source Code
 - Assignment: `=` (right-associative, chainable: `x = y = 1`)
 - Grouping: `()`
 - Control flow: `if`/`else`, `while`
+- Output: `print` (prints value, returns it)
+- Functions: `func name(param: type) -> type { body }`, called as `name(arg)`
 
 ### Value Types
 - `Number(f64)` - floating point numbers
@@ -94,7 +103,7 @@ examples/
 ### Commands
 ```bash
 cargo build              # Build
-cargo test               # Run tests (49 tests)
+cargo test               # Run tests (55 tests)
 cargo run -- <file.sl>   # Compile file to QBE IR
 cargo run -- --repl      # Start tree-walking REPL
 bash run.sh              # Full pipeline: compile → qbe → cc → run
@@ -107,21 +116,22 @@ cargo run ./examples/main.sl && qbe -o .build/out.s .build/main.qbe && cc .build
 
 ### Testing
 - Lexer: 33 tests
-- QBE compiler: 16 tests (literals, arithmetic, comparisons, logical ops, variables, if, while)
+- QBE compiler: 22 tests (literals, arithmetic, comparisons, logical ops, variables, if, while, print, functions)
 
 ## Coding Conventions
 
 - Use `Result<T, anyhow::Error>` for QBE compilation errors
 - Use `ResType` enum (`Number`, `Bool`) for compile-time type tracking
 - Labels in QBE IR use `@label_N` naming with counter-based unique IDs
+- Function parameters in QBE use `%p_<name>` to avoid collisions with `%t<N>` temporaries
+- Functions are top-level only; all sigs are registered before any body is compiled (enables forward calls)
+- Function body: last expression is the implicit return value
 - Follow existing patterns in codebase
 - Add tests for new functionality
 
 ## Planned Next Steps
 
-1. `print` statement
-2. Functions
-3. `let` for explicit variable declaration
+1. `let` for explicit variable declaration
 
 ## Deferred
 - Structured error reporting with spans

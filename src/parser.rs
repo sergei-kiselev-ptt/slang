@@ -6,12 +6,18 @@ use log::{debug, error};
 
 use crate::lexer::*;
 
+#[derive(Debug, Clone)]
+pub enum TypeAnnotation {
+    Num,
+    Bool,
+}
+
 pub struct Parser {
     tokens: Vec<Token>,
     current: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr {
     Literal(LiteralValue),
     Unary {
@@ -32,8 +38,11 @@ pub enum Expr {
     },
     If {
         condition: Box<Expr>,
-        then_branch: Box<Expr>,
-        else_branch: Option<Box<Expr>>,
+        then_branch: Vec<Expr>,
+        else_branch: Option<Vec<Expr>>,
+    },
+    Return {
+        value: Box<Expr>,
     },
     While {
         condition: Box<Expr>,
@@ -42,9 +51,19 @@ pub enum Expr {
     Print {
         value: Box<Expr>,
     },
+    FuncDef {
+        name: Token,
+        params: Vec<(Token, TypeAnnotation)>,
+        return_type: TypeAnnotation,
+        body: Vec<Expr>,
+    },
+    Call {
+        name: Token,
+        args: Vec<Expr>,
+    },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum LiteralValue {
     Number(f64),
     String(String),
@@ -75,10 +94,88 @@ impl Parser {
         let mut exprs = vec![];
         self.skip_newlines();
         while !self.is_at_end() {
-            exprs.push(self.parse_expr());
+            if self.match_token(&[TokenType::Func]) {
+                exprs.push(self.parse_func_def());
+            } else {
+                exprs.push(self.parse_expr());
+            }
             self.skip_newlines();
         }
         exprs
+    }
+
+    fn parse_func_def(&mut self) -> Expr {
+        if !self.match_token(&[TokenType::Identifier]) {
+            panic!("Expected function name after 'func'");
+        }
+        let name = self.previous().clone();
+
+        if !self.match_token(&[TokenType::LeftParen]) {
+            panic!("Expected '(' after function name");
+        }
+
+        let mut params = vec![];
+        while !self.check_token(&[TokenType::RightParen]) {
+            if self.is_at_end() {
+                panic!("Expected ')' in function parameter list");
+            }
+            if !params.is_empty() && !self.match_token(&[TokenType::Comma]) {
+                panic!("Expected ',' between parameters");
+            }
+            if !self.match_token(&[TokenType::Identifier]) {
+                panic!("Expected parameter name");
+            }
+            let param_name = self.previous().clone();
+            if !self.match_token(&[TokenType::Colon]) {
+                panic!("Expected ':' after parameter name");
+            }
+            let param_type = self.parse_type();
+            params.push((param_name, param_type));
+        }
+
+        if !self.match_token(&[TokenType::RightParen]) {
+            panic!("Expected ')' after parameters");
+        }
+        if !self.match_token(&[TokenType::Arrow]) {
+            panic!("Expected '->' after parameters");
+        }
+        let return_type = self.parse_type();
+
+        if !self.match_token(&[TokenType::LeftBrace]) {
+            panic!("Expected '{{' before function body");
+        }
+        let body = self.parse_block();
+
+        Expr::FuncDef {
+            name,
+            params,
+            return_type,
+            body,
+        }
+    }
+
+    fn parse_type(&mut self) -> TypeAnnotation {
+        if self.match_token(&[TokenType::NumType]) {
+            TypeAnnotation::Num
+        } else if self.match_token(&[TokenType::BoolType]) {
+            TypeAnnotation::Bool
+        } else {
+            panic!(
+                "Expected type ('num' or 'bool'), found {:?}",
+                self.current()
+            );
+        }
+    }
+
+    fn check_token(&self, types: &[TokenType]) -> bool {
+        let mut i = self.current;
+        while i < self.tokens.len() && self.tokens[i].token_type == TokenType::Newline {
+            i += 1;
+        }
+        if i >= self.tokens.len() {
+            return false;
+        }
+        types.iter().any(|t| self.tokens[i].token_type == *t)
     }
 
     fn skip_newlines(&mut self) {
@@ -268,6 +365,13 @@ impl Parser {
             };
         }
 
+        if self.match_token(&[TokenType::Return]) {
+            let value = self.parse_expr();
+            return Expr::Return {
+                value: Box::new(value),
+            };
+        }
+
         if self.match_token(&[TokenType::True]) {
             return Expr::Literal(LiteralValue::Bool(true));
         }
@@ -277,56 +381,71 @@ impl Parser {
         }
 
         if self.match_token(&[TokenType::Identifier]) {
-            let identifier_token = self.previous();
+            let identifier_token = self.previous().clone();
+            if self.match_token(&[TokenType::LeftParen]) {
+                let mut args = vec![];
+                while !self.check_token(&[TokenType::RightParen]) {
+                    if self.is_at_end() {
+                        panic!("Expected ')' in argument list");
+                    }
+                    if !args.is_empty() && !self.match_token(&[TokenType::Comma]) {
+                        panic!("Expected ',' between arguments");
+                    }
+                    args.push(self.parse_expr());
+                }
+                if !self.match_token(&[TokenType::RightParen]) {
+                    panic!("Expected ')' after arguments");
+                }
+                return Expr::Call {
+                    name: identifier_token,
+                    args,
+                };
+            }
             return Expr::Variable {
-                name: identifier_token.clone(),
+                name: identifier_token,
             };
         }
         panic!("Only NUMBER can be a primary, found {:?}", self.current());
     }
 
     fn parse_if(&mut self) -> Expr {
-        // Parse condition (no braces around it)
         let condition = self.parse_expr();
 
-        // Expect opening brace for then branch
         if !self.match_token(&[TokenType::LeftBrace]) {
             panic!("Expected '{{' after if condition");
         }
+        let then_branch = self.parse_block();
 
-        // Parse then branch expression
-        let then_branch = self.parse_expr();
-
-        // Expect closing brace for then branch
-        if !self.match_token(&[TokenType::RightBrace]) {
-            panic!("Expected '}}' after then branch");
-        }
-
-        // Optional else branch
         let else_branch = if self.match_token(&[TokenType::Else]) {
-            // Expect opening brace for else branch
             if !self.match_token(&[TokenType::LeftBrace]) {
                 panic!("Expected '{{' after else");
             }
-
-            // Parse else branch expression
-            let else_expr = self.parse_expr();
-
-            // Expect closing brace for else branch
-            if !self.match_token(&[TokenType::RightBrace]) {
-                panic!("Expected '}}' after else branch");
-            }
-
-            Some(Box::new(else_expr))
+            Some(self.parse_block())
         } else {
             None
         };
 
         Expr::If {
             condition: Box::new(condition),
-            then_branch: Box::new(then_branch),
+            then_branch,
             else_branch,
         }
+    }
+
+    fn parse_block(&mut self) -> Vec<Expr> {
+        self.skip_newlines();
+        let mut exprs = vec![];
+        while !self.check_token(&[TokenType::RightBrace]) {
+            if self.is_at_end() {
+                panic!("Expected '}}' to close block");
+            }
+            exprs.push(self.parse_expr());
+            self.skip_newlines();
+        }
+        if !self.match_token(&[TokenType::RightBrace]) {
+            panic!("Expected '}}' after block");
+        }
+        exprs
     }
 
     fn parse_while(&mut self) -> Expr {
@@ -335,14 +454,7 @@ impl Parser {
         if !self.match_token(&[TokenType::LeftBrace]) {
             panic!("Expected '{{' after while condition");
         }
-
-        let mut body = vec![];
-        while !self.match_token(&[TokenType::RightBrace]) {
-            if self.is_at_end() {
-                panic!("Expected '}}' to close while body");
-            }
-            body.push(self.parse_expr());
-        }
+        let body = self.parse_block();
 
         Expr::While {
             condition: Box::new(condition),
@@ -411,19 +523,57 @@ impl Expr {
                     .join("; ")
             ),
             Expr::Print { value } => format!("(print {})", value.as_str()),
+            Expr::Return { value } => format!("(return {})", value.as_str()),
+            Expr::FuncDef {
+                name, params, body, ..
+            } => format!(
+                "(func {} ({}) {{ {} }})",
+                name.lexeme,
+                params
+                    .iter()
+                    .map(|(p, _)| p.lexeme.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                body.iter()
+                    .map(|e| e.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
+            Expr::Call { name, args } => format!(
+                "(call {} ({}))",
+                name.lexeme,
+                args.iter()
+                    .map(|a| a.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             Expr::If {
                 condition,
                 then_branch,
                 else_branch,
-            } => match else_branch {
-                Some(else_expr) => format!(
-                    "(if {} {{ {} }} else {{ {} }})",
-                    condition.as_str(),
-                    then_branch.as_str(),
-                    else_expr.as_str()
-                ),
-                None => format!("(if {} {{ {} }})", condition.as_str(), then_branch.as_str()),
-            },
+            } => {
+                let then_str = then_branch
+                    .iter()
+                    .map(|e| e.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                match else_branch {
+                    Some(else_exprs) => {
+                        let else_str = else_exprs
+                            .iter()
+                            .map(|e| e.as_str())
+                            .collect::<Vec<_>>()
+                            .join("; ");
+                        format!(
+                            "(if {} {{ {} }} else {{ {} }})",
+                            condition.as_str(),
+                            then_str,
+                            else_str
+                        )
+                    }
+                    None => format!("(if {} {{ {} }})", condition.as_str(), then_str),
+                }
+            }
         }
     }
 }

@@ -36,6 +36,17 @@ pub enum TokenType {
     Else,
     While,
     Print,
+    Func,
+    Return,
+
+    // Type keywords
+    NumType,
+    BoolType,
+
+    // Punctuation
+    Arrow, // ->
+    Colon, // :
+    Comma, // ,
 
     // Literals
     Number,
@@ -87,7 +98,14 @@ fn scan_next_token(input: &Vec<char>, current: usize) -> Result<(Option<Token>, 
             }),
             current + 1,
         )),
-        '-' => Ok((Some(minus()), current + 1)),
+        ':' => Ok((Some(colon()), current + 1)),
+        ',' => Ok((Some(comma()), current + 1)),
+        '-' => {
+            if current + 1 < input.len() && input[current + 1] == '>' {
+                return Ok((Some(arrow()), current + 2));
+            }
+            Ok((Some(minus()), current + 1))
+        }
         '+' => Ok((Some(plus()), current + 1)),
         '*' => Ok((Some(star()), current + 1)),
         '/' => Ok((Some(slash()), current + 1)),
@@ -278,6 +296,55 @@ fn print_kw() -> Token {
     }
 }
 
+fn func_kw() -> Token {
+    Token {
+        token_type: TokenType::Func,
+        lexeme: "func".to_string(),
+    }
+}
+
+fn return_kw() -> Token {
+    Token {
+        token_type: TokenType::Return,
+        lexeme: "return".to_string(),
+    }
+}
+
+fn num_type_kw() -> Token {
+    Token {
+        token_type: TokenType::NumType,
+        lexeme: "num".to_string(),
+    }
+}
+
+fn bool_type_kw() -> Token {
+    Token {
+        token_type: TokenType::BoolType,
+        lexeme: "bool".to_string(),
+    }
+}
+
+fn arrow() -> Token {
+    Token {
+        token_type: TokenType::Arrow,
+        lexeme: "->".to_string(),
+    }
+}
+
+fn colon() -> Token {
+    Token {
+        token_type: TokenType::Colon,
+        lexeme: ":".to_string(),
+    }
+}
+
+fn comma() -> Token {
+    Token {
+        token_type: TokenType::Comma,
+        lexeme: ",".to_string(),
+    }
+}
+
 fn equal() -> Token {
     Token {
         token_type: TokenType::Equal,
@@ -393,13 +460,14 @@ fn is_word_boundary(c: char) -> bool {
             | '>'
             | '&'
             | '|'
+            | ','
+            | ':'
     )
 }
 
 fn scan_keyword(input: &[char], start: usize) -> (Option<Token>, usize) {
     let slice = &input[start..];
 
-    // Check for "if" (2 chars)
     if slice.len() >= 2
         && slice.starts_with(&['i', 'f'])
         && (slice.len() == 2 || is_word_boundary(slice[2]))
@@ -407,7 +475,6 @@ fn scan_keyword(input: &[char], start: usize) -> (Option<Token>, usize) {
         return (Some(if_kw()), start + 2);
     }
 
-    // Check for "else" (4 chars)
     if slice.len() >= 4
         && slice.starts_with(&['e', 'l', 's', 'e'])
         && (slice.len() == 4 || is_word_boundary(slice[4]))
@@ -415,7 +482,6 @@ fn scan_keyword(input: &[char], start: usize) -> (Option<Token>, usize) {
         return (Some(else_kw()), start + 4);
     }
 
-    // Check for "while" (5 chars)
     if slice.len() >= 5
         && slice.starts_with(&['w', 'h', 'i', 'l', 'e'])
         && (slice.len() == 5 || is_word_boundary(slice[5]))
@@ -423,12 +489,39 @@ fn scan_keyword(input: &[char], start: usize) -> (Option<Token>, usize) {
         return (Some(while_kw()), start + 5);
     }
 
-    // Check for "print" (5 chars)
     if slice.len() >= 5
         && slice.starts_with(&['p', 'r', 'i', 'n', 't'])
         && (slice.len() == 5 || is_word_boundary(slice[5]))
     {
         return (Some(print_kw()), start + 5);
+    }
+
+    if slice.len() >= 4
+        && slice.starts_with(&['f', 'u', 'n', 'c'])
+        && (slice.len() == 4 || is_word_boundary(slice[4]))
+    {
+        return (Some(func_kw()), start + 4);
+    }
+
+    if slice.len() >= 3
+        && slice.starts_with(&['n', 'u', 'm'])
+        && (slice.len() == 3 || is_word_boundary(slice[3]))
+    {
+        return (Some(num_type_kw()), start + 3);
+    }
+
+    if slice.len() >= 4
+        && slice.starts_with(&['b', 'o', 'o', 'l'])
+        && (slice.len() == 4 || is_word_boundary(slice[4]))
+    {
+        return (Some(bool_type_kw()), start + 4);
+    }
+
+    if slice.len() >= 6
+        && slice.starts_with(&['r', 'e', 't', 'u', 'r', 'n'])
+        && (slice.len() == 6 || is_word_boundary(slice[6]))
+    {
+        return (Some(return_kw()), start + 6);
     }
 
     (None, 0)

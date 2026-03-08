@@ -1,4 +1,9 @@
-<program>     ::= ( <expression> <NEWLINE>* )* ;
+<program>     ::= ( <func_def> | <expression> <NEWLINE>* )* ;
+<func_def>    ::= "func" <IDENTIFIER> "(" <params>? ")" "->" <type>
+                  "{" <NEWLINE>* <expression>* <NEWLINE>* "}" ;
+<params>      ::= <param> ( "," <param> )* ;
+<param>       ::= <IDENTIFIER> ":" <type> ;
+<type>        ::= "num" | "bool" ;
 <expression>  ::= <assignment> ;
 <assignment>  ::= <IDENTIFIER> "=" <assignment> | <logical_or> ;
 <logical_or>  ::= <logical_and> ( "||" <logical_and> )* ;
@@ -11,7 +16,12 @@
 <primary>     ::= <NUMBER> | <IDENTIFIER> | "true" | "false"
                 | "(" <expression> ")"
                 | <if_expr>
-                | <while_expr> ;
+                | <while_expr>
+                | <print_expr>
+                | <call_expr> ;
+<print_expr>  ::= "print" <expression> ;
+<call_expr>   ::= <IDENTIFIER> "(" <args>? ")" ;
+<args>        ::= <expression> ( "," <expression> )* ;
 <if_expr>     ::= "if" <expression> "{" <NEWLINE>* <expression> <NEWLINE>* "}"
                   ( "else" "{" <NEWLINE>* <expression> <NEWLINE>* "}" )? ;
 <while_expr>  ::= "while" <expression> "{" ( <NEWLINE>* <expression> )* <NEWLINE>* "}" ;

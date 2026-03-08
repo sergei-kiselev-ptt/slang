@@ -9,6 +9,11 @@ use crate::{
     parser::{Expr, LiteralValue, Parser},
 };
 
+struct StoredFunc {
+    params: Vec<String>,
+    body: Vec<Expr>,
+}
+
 pub fn run_repl() {
     let mut buffer = String::new();
     println!("Welcome to the slang REPL");
@@ -34,6 +39,17 @@ pub fn run_repl() {
     }
 }
 
+fn eval_block(exprs: &[Expr], env: &mut Environment) -> Value {
+    let mut result = Value::Number(0.0);
+    for expr in exprs {
+        result = expr.eval(env);
+        if matches!(result, Value::Return(_)) {
+            return result;
+        }
+    }
+    result
+}
+
 impl Expr {
     fn eval(&self, env: &mut Environment) -> Value {
         match self {
@@ -46,6 +62,7 @@ impl Expr {
                 TokenType::Minus => match right.eval(env) {
                     Value::Number(num) => Value::Number(-num),
                     e @ Value::Error(_) => e,
+                    r @ Value::Return(_) => r,
                     Value::Bool(_) => {
                         Value::Error(format!("Can't apply minus to boolean expression"))
                     }
@@ -83,7 +100,10 @@ impl Expr {
                     match condition.eval(env) {
                         Value::Bool(true) => {
                             for expr in body {
-                                expr.eval(env);
+                                let val = expr.eval(env);
+                                if matches!(val, Value::Return(_)) {
+                                    return val;
+                                }
                             }
                         }
                         Value::Bool(false) => break,
@@ -102,6 +122,54 @@ impl Expr {
                 println!("{}", val.print());
                 val
             }
+            Expr::FuncDef {
+                name, params, body, ..
+            } => {
+                let param_names = params.iter().map(|(tok, _)| tok.lexeme.clone()).collect();
+                env.define_func(name.lexeme.clone(), param_names, body.clone());
+                Value::Number(0.0)
+            }
+            Expr::Call { name, args } => {
+                let func_name = &name.lexeme;
+                let func = match env.functions.get(func_name) {
+                    Some(f) => StoredFunc {
+                        params: f.params.clone(),
+                        body: f.body.clone(),
+                    },
+                    None => return Value::Error(format!("undefined function '{}'", func_name)),
+                };
+
+                if args.len() != func.params.len() {
+                    return Value::Error(format!(
+                        "function '{}' expects {} arguments, got {}",
+                        func_name,
+                        func.params.len(),
+                        args.len()
+                    ));
+                }
+
+                let mut call_env = Environment::new();
+                // Copy functions so the callee can call other functions
+                for (fname, f) in &env.functions {
+                    call_env.functions.insert(
+                        fname.clone(),
+                        StoredFunc {
+                            params: f.params.clone(),
+                            body: f.body.clone(),
+                        },
+                    );
+                }
+                for (param_name, arg_expr) in func.params.iter().zip(args.iter()) {
+                    let val = arg_expr.eval(env);
+                    call_env.set(param_name.clone(), val);
+                }
+
+                let result = eval_block(&func.body, &mut call_env);
+                match result {
+                    Value::Return(inner) => *inner,
+                    _ => Value::Error(format!("function '{}' has no return statement", func_name)),
+                }
+            }
             Expr::If {
                 condition,
                 then_branch,
@@ -109,14 +177,18 @@ impl Expr {
             } => {
                 let cond = condition.eval(env);
                 match cond {
-                    Value::Bool(true) => then_branch.eval(env),
+                    Value::Bool(true) => eval_block(then_branch, env),
                     Value::Bool(false) => match else_branch {
-                        Some(else_expr) => else_expr.eval(env),
-                        None => Value::Number(0.0), // Default when no else
+                        Some(else_exprs) => eval_block(else_exprs, env),
+                        None => Value::Number(0.0),
                     },
                     Value::Error(e) => Value::Error(e),
                     other => Value::Error(format!("if condition must be boolean, got {:?}", other)),
                 }
+            }
+            Expr::Return { value } => {
+                let val = value.eval(env);
+                Value::Return(Box::new(val))
             }
         }
     }
@@ -128,9 +200,13 @@ impl Expr {
         env: &mut Environment,
     ) -> Value {
         let l = left.eval(env);
+        if matches!(l, Value::Return(_)) {
+            return l;
+        }
         let r = right.eval(env);
 
         match (&l, &r) {
+            (_, Value::Return(_)) => return r,
             (Value::Error(l_msg), Value::Error(r_msg)) => {
                 return Value::Error(format!(
                     "Error when evaluating left part: {}\nError when evaluating right part: {}",
@@ -193,12 +269,14 @@ impl Expr {
 
 struct Environment {
     values: HashMap<String, Value>,
+    functions: HashMap<String, StoredFunc>,
 }
 
 impl Environment {
     pub fn new() -> Self {
         Self {
             values: HashMap::new(),
+            functions: HashMap::new(),
         }
     }
 
@@ -209,6 +287,10 @@ impl Environment {
     pub fn get(&self, name: &str) -> Option<&Value> {
         self.values.get(name)
     }
+
+    pub fn define_func(&mut self, name: String, params: Vec<String>, body: Vec<Expr>) {
+        self.functions.insert(name, StoredFunc { params, body });
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -217,6 +299,7 @@ pub enum Value {
     Bool(bool),
     // String(String),
     Error(String),
+    Return(Box<Value>),
 }
 
 impl Value {
@@ -225,6 +308,7 @@ impl Value {
             Value::Number(num) => num.to_string(),
             Value::Error(msg) => msg.clone(),
             Value::Bool(bool) => bool.to_string(),
+            Value::Return(inner) => inner.print(),
         }
     }
 }

@@ -5,12 +5,19 @@ use thiserror::Error;
 
 use crate::{
     lexer::TokenType,
-    parser::{Expr, LiteralValue},
+    parser::{Expr, LiteralValue, TypeAnnotation},
 };
+
+#[derive(Clone)]
+struct FuncSig {
+    params: Vec<(String, ResType)>,
+    return_type: ResType,
+}
 
 pub struct Compiler {
     counter: usize,
     vars: HashMap<String, (String, ResType)>, // name -> (stack_slot_tmp, type)
+    functions: HashMap<String, FuncSig>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -47,6 +54,32 @@ impl ResType {
             ResType::Bool => format!("{} =w copy 0", tmp),
         }
     }
+
+    fn qbe_abi_type(&self) -> &str {
+        match self {
+            ResType::Number => "d",
+            ResType::Bool => "w",
+        }
+    }
+}
+
+fn last_is_terminator(instrs: &[String]) -> bool {
+    instrs
+        .iter()
+        .rev()
+        .find(|i| !i.trim().is_empty() && !i.trim_start().starts_with('@'))
+        .map(|i| {
+            let s = i.trim();
+            s.starts_with("ret") || s.starts_with("jmp ") || s.starts_with("jnz ")
+        })
+        .unwrap_or(false)
+}
+
+fn res_type_from_annotation(ann: &TypeAnnotation) -> ResType {
+    match ann {
+        TypeAnnotation::Num => ResType::Number,
+        TypeAnnotation::Bool => ResType::Bool,
+    }
 }
 
 impl Compiler {
@@ -54,6 +87,7 @@ impl Compiler {
         Self {
             counter: 0,
             vars: HashMap::new(),
+            functions: HashMap::new(),
         }
     }
 
@@ -64,11 +98,47 @@ impl Compiler {
     }
 
     pub fn compile(&mut self, exprs: Vec<Expr>) -> Result<Vec<String>> {
+        let mut func_defs = vec![];
+        let mut main_exprs = vec![];
+        for expr in exprs {
+            match expr {
+                Expr::FuncDef { .. } => func_defs.push(expr),
+                other => main_exprs.push(other),
+            }
+        }
+
+        for expr in &func_defs {
+            if let Expr::FuncDef {
+                name,
+                params,
+                return_type,
+                ..
+            } = expr
+            {
+                let sig = FuncSig {
+                    params: params
+                        .iter()
+                        .map(|(tok, ann)| (tok.lexeme.clone(), res_type_from_annotation(ann)))
+                        .collect(),
+                    return_type: res_type_from_annotation(return_type),
+                };
+                self.functions.insert(name.lexeme.clone(), sig);
+            }
+        }
+
         let mut out = vec![];
+
+        for expr in &func_defs {
+            if let Expr::FuncDef { name, body, .. } = expr {
+                let lines = self.compile_func_def(name, body)?;
+                out.extend(lines);
+                out.push(String::new());
+            }
+        }
+
         out.push("export function w $main() {".to_string());
         out.push("@start".to_string());
-
-        for expr in &exprs {
+        for expr in &main_exprs {
             let (_, _, instructions) = self.compile_expr(expr)?;
             for line in instructions {
                 if line.starts_with('@') {
@@ -78,14 +148,86 @@ impl Compiler {
                 }
             }
         }
-
         out.push("  ret 0".to_string());
         out.push("}".to_string());
-        out.push("\n".to_string());
         out.push("data $fmt_print_d = { b \"%g\\n\", b 0 }".to_string());
         out.push("data $str_true_nl = { b \"true\\n\", b 0 }".to_string());
         out.push("data $str_false_nl = { b \"false\\n\", b 0 }".to_string());
         Ok(out)
+    }
+
+    fn compile_func_def(
+        &mut self,
+        name: &crate::lexer::Token,
+        body: &[Expr],
+    ) -> Result<Vec<String>> {
+        let sig = self.functions[&name.lexeme].clone();
+        let ret_ty = sig.return_type;
+        let param_types = sig.params;
+
+        // Save outer scope
+        let saved_vars = std::mem::take(&mut self.vars);
+
+        // Build QBE parameter list using %p_<name> as the QBE temps for params
+        let qbe_params = param_types
+            .iter()
+            .map(|(n, ty)| format!("{} %p_{}", ty.qbe_abi_type(), n))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let mut out = vec![];
+        out.push(format!(
+            "export function {} ${}({}) {{",
+            ret_ty.qbe_abi_type(),
+            name.lexeme,
+            qbe_params
+        ));
+        out.push("@start".to_string());
+
+        // Allocate slots for each parameter and store into them
+        for (param_name, param_ty) in &param_types {
+            let slot = self.next_tmp();
+            out.push(format!("  {}", param_ty.alloc_instr(&slot)));
+            out.push(format!(
+                "  {}",
+                param_ty.store_instr(&format!("%p_{}", param_name), &slot)
+            ));
+            self.vars
+                .insert(param_name.clone(), (slot, param_ty.clone()));
+        }
+
+        let (_, _, body_instrs) = self.compile_block(body)?;
+        for line in body_instrs {
+            if line.starts_with('@') {
+                out.push(line);
+            } else {
+                out.push(format!("  {}", line));
+            }
+        }
+        out.push("}".to_string());
+
+        // Restore outer scope
+        self.vars = saved_vars;
+
+        Ok(out)
+    }
+
+    /// Compile a sequence of expressions (block body), returning the last value.
+    fn compile_block(&mut self, exprs: &[Expr]) -> Result<(String, ResType, Vec<String>)> {
+        let mut all_instrs = vec![];
+        let mut last_tmp = String::new();
+        let mut last_ty = ResType::Number;
+        for expr in exprs {
+            let (tmp, ty, instrs) = self.compile_expr(expr)?;
+            let terminates = last_is_terminator(&instrs);
+            all_instrs.extend(instrs);
+            last_tmp = tmp;
+            last_ty = ty;
+            if terminates {
+                break; // don't compile dead code after a terminator
+            }
+        }
+        Ok((last_tmp, last_ty, all_instrs))
     }
 
     fn emit_arithmetic(
@@ -297,11 +439,12 @@ impl Compiler {
                 out.push(format!("jnz {}, {}, {}", cond_tmp, body_label, end_label));
 
                 out.push(body_label);
-                for expr in body {
-                    let (_, _, instrs) = self.compile_expr(expr)?;
-                    out.extend(instrs);
+                let (_, _, body_instrs) = self.compile_block(body)?;
+                let body_terminates = last_is_terminator(&body_instrs);
+                out.extend(body_instrs);
+                if !body_terminates {
+                    out.push(format!("jmp {}", cond_label));
                 }
-                out.push(format!("jmp {}", cond_label));
 
                 out.push(end_label);
                 let result_tmp = self.next_tmp();
@@ -315,10 +458,12 @@ impl Compiler {
                 else_branch,
             } => {
                 let (cond_tmp, _, cond_instrs) = self.compile_expr(condition)?;
-                let (then_tmp, then_ty, then_instrs) = self.compile_expr(then_branch)?;
+
+                // Compile both branches to determine type
+                let (then_tmp, then_ty, then_instrs) = self.compile_block(then_branch)?;
                 let else_compiled = else_branch
                     .as_ref()
-                    .map(|eb| self.compile_expr(eb))
+                    .map(|eb| self.compile_block(eb))
                     .transpose()?;
 
                 let id = self.counter;
@@ -327,22 +472,29 @@ impl Compiler {
                 let end_label = format!("@end_{}", id);
 
                 let mut out = cond_instrs;
-
                 out.push(then_ty.alloc_instr(&slot));
+
+                let then_terminates = last_is_terminator(&then_instrs);
 
                 if let Some((else_tmp, _, else_instrs)) = else_compiled {
                     let else_label = format!("@else_{}", id);
+                    let else_terminates = last_is_terminator(&else_instrs);
+
                     out.push(format!("jnz {}, {}, {}", cond_tmp, then_label, else_label));
 
                     out.push(then_label);
                     out.extend(then_instrs);
-                    out.push(then_ty.store_instr(&then_tmp, &slot));
-                    out.push(format!("jmp {}", end_label));
+                    if !then_terminates {
+                        out.push(then_ty.store_instr(&then_tmp, &slot));
+                        out.push(format!("jmp {}", end_label));
+                    }
 
                     out.push(else_label);
                     out.extend(else_instrs);
-                    out.push(then_ty.store_instr(&else_tmp, &slot));
-                    out.push(format!("jmp {}", end_label));
+                    if !else_terminates {
+                        out.push(then_ty.store_instr(&else_tmp, &slot));
+                        out.push(format!("jmp {}", end_label));
+                    }
                 } else {
                     // no else: initialize slot to type default, skip then if false
                     let default_tmp = self.next_tmp();
@@ -352,8 +504,10 @@ impl Compiler {
 
                     out.push(then_label);
                     out.extend(then_instrs);
-                    out.push(then_ty.store_instr(&then_tmp, &slot));
-                    out.push(format!("jmp {}", end_label));
+                    if !then_terminates {
+                        out.push(then_ty.store_instr(&then_tmp, &slot));
+                        out.push(format!("jmp {}", end_label));
+                    }
                 }
 
                 out.push(end_label);
@@ -361,6 +515,57 @@ impl Compiler {
                 out.push(then_ty.load_instr(&result_tmp, &slot));
 
                 Ok((result_tmp, then_ty, out))
+            }
+            Expr::Return { value } => {
+                let (val_tmp, ty, mut instructions) = self.compile_expr(value)?;
+                instructions.push(format!("ret {}", val_tmp));
+                Ok((val_tmp, ty, instructions))
+            }
+            Expr::FuncDef { .. } => Err(QbeError::CompilationError(
+                "function definitions must be at the top level".to_string(),
+            )
+            .into()),
+            Expr::Call { name, args } => {
+                let func_name = &name.lexeme;
+                let sig = self
+                    .functions
+                    .get(func_name)
+                    .ok_or_else(|| {
+                        QbeError::CompilationError(format!("undefined function '{}'", func_name))
+                    })?
+                    .clone();
+
+                if args.len() != sig.params.len() {
+                    return Err(QbeError::CompilationError(format!(
+                        "function '{}' expects {} arguments, got {}",
+                        func_name,
+                        sig.params.len(),
+                        args.len()
+                    ))
+                    .into());
+                }
+
+                let mut instructions = vec![];
+                let mut arg_tmps: Vec<(String, ResType)> = vec![];
+                for (arg_expr, (_, param_ty)) in args.iter().zip(sig.params.iter()) {
+                    let (arg_tmp, _, arg_instrs) = self.compile_expr(arg_expr)?;
+                    instructions.extend(arg_instrs);
+                    arg_tmps.push((arg_tmp, param_ty.clone()));
+                }
+
+                let result_tmp = self.next_tmp();
+                let ret_abi = sig.return_type.qbe_abi_type();
+                let args_str = arg_tmps
+                    .iter()
+                    .map(|(tmp, ty)| format!("{} {}", ty.qbe_abi_type(), tmp))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                instructions.push(format!(
+                    "{} ={} call ${}({})",
+                    result_tmp, ret_abi, func_name, args_str
+                ));
+
+                Ok((result_tmp, sig.return_type.clone(), instructions))
             }
             Expr::Print { value } => {
                 let (val_tmp, ty, mut instructions) = self.compile_expr(value)?;
@@ -568,6 +773,45 @@ mod tests {
             instrs.last().unwrap(),
             &format!("call $printf(l $fmt_print_d, ..., d {})", tmp)
         );
+    }
+
+    fn compile_program(source: &str) -> Vec<String> {
+        let tokens = parse_into_tokens(source).unwrap();
+        let mut parser = Parser::new(tokens);
+        let exprs = parser.parse_program();
+        let mut compiler = Compiler::new();
+        compiler.compile(exprs).unwrap()
+    }
+
+    #[test]
+    fn func_def_emitted_before_main() {
+        let out =
+            compile_program("func double(x: num) -> num {\n return x + x\n}\nprint double(3)");
+        // function block must appear before $main
+        let func_pos = out.iter().position(|l| l.contains("$double")).unwrap();
+        let main_pos = out.iter().position(|l| l.contains("$main")).unwrap();
+        assert!(func_pos < main_pos);
+    }
+
+    #[test]
+    fn func_def_return_type_in_signature() {
+        let out = compile_program("func square(x: num) -> num {\n return x * x\n}");
+        assert!(out.iter().any(|l| l.contains("export function d $square")));
+    }
+
+    #[test]
+    fn func_def_bool_return() {
+        let out = compile_program("func always_true() -> bool {\n return true\n}");
+        assert!(
+            out.iter()
+                .any(|l| l.contains("export function w $always_true"))
+        );
+    }
+
+    #[test]
+    fn call_emits_call_instruction() {
+        let out = compile_program("func id(x: num) -> num {\n x\n}\nid(42)");
+        assert!(out.iter().any(|l| l.contains("call $id")));
     }
 
     #[test]
