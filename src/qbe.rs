@@ -68,12 +68,8 @@ impl Compiler {
         out.push("export function w $main() {".to_string());
         out.push("@start".to_string());
 
-        let mut last_tmp = String::new();
-        let mut last_ty = ResType::Number;
-        let mut last_expr_str = String::new();
-
         for expr in &exprs {
-            let (tmp, ty, instructions) = self.compile_expr(expr)?;
+            let (_, _, instructions) = self.compile_expr(expr)?;
             for line in instructions {
                 if line.starts_with('@') {
                     out.push(line);
@@ -81,23 +77,14 @@ impl Compiler {
                     out.push(format!("  {}", line));
                 }
             }
-            last_expr_str = expr.as_str();
-            last_tmp = tmp;
-            last_ty = ty;
         }
 
-        let (printf_arg, fmt_spec) = match last_ty {
-            ResType::Number => (format!("d {}", last_tmp), "%g"),
-            ResType::Bool => (format!("w {}", last_tmp), "%d"),
-        };
-        out.push(format!("  call $printf(l $fmt, ..., {})", printf_arg));
         out.push("  ret 0".to_string());
         out.push("}".to_string());
         out.push("\n".to_string());
-        out.push(format!(
-            "data $fmt = {{ b \"QBE: {} = {}\\n\", b 0 }}",
-            last_expr_str, fmt_spec
-        ));
+        out.push("data $fmt_print_d = { b \"%g\\n\", b 0 }".to_string());
+        out.push("data $str_true_nl = { b \"true\\n\", b 0 }".to_string());
+        out.push("data $str_false_nl = { b \"false\\n\", b 0 }".to_string());
         Ok(out)
     }
 
@@ -375,6 +362,31 @@ impl Compiler {
 
                 Ok((result_tmp, then_ty, out))
             }
+            Expr::Print { value } => {
+                let (val_tmp, ty, mut instructions) = self.compile_expr(value)?;
+                match ty {
+                    ResType::Number => {
+                        instructions
+                            .push(format!("call $printf(l $fmt_print_d, ..., d {})", val_tmp));
+                    }
+                    ResType::Bool => {
+                        let id = self.counter;
+                        let _ = self.next_tmp(); // reserve id
+                        let true_label = format!("@print_true_{}", id);
+                        let false_label = format!("@print_false_{}", id);
+                        let end_label = format!("@print_end_{}", id);
+                        instructions
+                            .push(format!("jnz {}, {}, {}", val_tmp, true_label, false_label));
+                        instructions.push(true_label);
+                        instructions.push("call $printf(l $str_true_nl)".to_string());
+                        instructions.push(format!("jmp {}", end_label));
+                        instructions.push(false_label);
+                        instructions.push("call $printf(l $str_false_nl)".to_string());
+                        instructions.push(end_label);
+                    }
+                }
+                Ok((val_tmp, ty, instructions))
+            }
         }
     }
 }
@@ -546,5 +558,25 @@ mod tests {
         assert!(
             instrs.last().unwrap().contains("loadsw") && instrs.last().unwrap().starts_with(&tmp)
         );
+    }
+
+    #[test]
+    fn print_number() {
+        let (tmp, ty, instrs) = compile_expr("print 42");
+        assert_eq!(ty, ResType::Number);
+        assert_eq!(
+            instrs.last().unwrap(),
+            &format!("call $printf(l $fmt_print_d, ..., d {})", tmp)
+        );
+    }
+
+    #[test]
+    fn print_bool() {
+        let (tmp, ty, instrs) = compile_expr("print true");
+        assert_eq!(ty, ResType::Bool);
+        assert!(instrs.iter().any(|i| i.contains("jnz") && i.contains(&tmp)));
+        assert!(instrs.iter().any(|i| i.contains("$str_true_nl")));
+        assert!(instrs.iter().any(|i| i.contains("$str_false_nl")));
+        assert!(instrs.last().unwrap().starts_with("@print_end_"));
     }
 }

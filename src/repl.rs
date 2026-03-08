@@ -97,6 +97,11 @@ impl Expr {
                 }
                 Value::Number(0.0)
             }
+            Expr::Print { value } => {
+                let val = value.eval(env);
+                println!("{}", val.print());
+                val
+            }
             Expr::If {
                 condition,
                 then_branch,

@@ -1,9 +1,11 @@
 x = true
-y = 0
-if x {
-    y = 1
-} else {
-    y = 2
-}
+y = 10
 
-y
+print 1111111
+print x
+x = false
+print x
+print y
+y = 20
+print y
+print 1111111

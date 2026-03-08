@@ -39,6 +39,9 @@ pub enum Expr {
         condition: Box<Expr>,
         body: Vec<Expr>,
     },
+    Print {
+        value: Box<Expr>,
+    },
 }
 
 #[derive(Debug)]
@@ -258,6 +261,13 @@ impl Parser {
             return self.parse_while();
         }
 
+        if self.match_token(&[TokenType::Print]) {
+            let value = self.parse_expr();
+            return Expr::Print {
+                value: Box::new(value),
+            };
+        }
+
         if self.match_token(&[TokenType::True]) {
             return Expr::Literal(LiteralValue::Bool(true));
         }
@@ -400,6 +410,7 @@ impl Expr {
                     .collect::<Vec<_>>()
                     .join("; ")
             ),
+            Expr::Print { value } => format!("(print {})", value.as_str()),
             Expr::If {
                 condition,
                 then_branch,

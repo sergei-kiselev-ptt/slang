@@ -35,6 +35,7 @@ pub enum TokenType {
     If,
     Else,
     While,
+    Print,
 
     // Literals
     Number,
@@ -270,6 +271,13 @@ fn while_kw() -> Token {
     }
 }
 
+fn print_kw() -> Token {
+    Token {
+        token_type: TokenType::Print,
+        lexeme: "print".to_string(),
+    }
+}
+
 fn equal() -> Token {
     Token {
         token_type: TokenType::Equal,
@@ -413,6 +421,14 @@ fn scan_keyword(input: &[char], start: usize) -> (Option<Token>, usize) {
         && (slice.len() == 5 || is_word_boundary(slice[5]))
     {
         return (Some(while_kw()), start + 5);
+    }
+
+    // Check for "print" (5 chars)
+    if slice.len() >= 5
+        && slice.starts_with(&['p', 'r', 'i', 'n', 't'])
+        && (slice.len() == 5 || is_word_boundary(slice[5]))
+    {
+        return (Some(print_kw()), start + 5);
     }
 
     (None, 0)
