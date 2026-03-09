@@ -7,7 +7,7 @@
 ### Design Goals
 - Simple syntax requiring only general software engineering knowledge
 - Cross-platform: MacOS, Linux (Arch), Windows
-- Fast feedback loop: REPL now, hot-reload later
+- Fast feedback loop: hot-reload later
 - Native, self-contained, small binaries (no Electron)
 
 ## Architecture
@@ -39,9 +39,8 @@ Source Code
 ### Implemented
 - **Lexer**: Full tokenization with comprehensive tests
 - **Parser**: Recursive descent parser producing AST; newlines as statement separators (insignificant inside expressions)
-- **AST**: `Literal`, `Unary`, `Binary`, `Variable`, `Assign`, `If`, `While`, `Print`, `FuncDef`, `Call`
+- **AST**: `Literal`, `Unary`, `Binary`, `Variable`, `Assign`, `Let`, `If`, `While`, `Print`, `FuncDef`, `Call`
 - **QBE Compiler**: Compiles to QBE IR, produces native binaries
-- **REPL**: Tree-walking interpreter (for quick experimentation)
 
 ### Grammar
 ```
@@ -64,6 +63,7 @@ Source Code
                 | "if" <expression> "{" <expression> "}" ( "else" "{" <expression> "}" )?
                 | "while" <expression> "{" <expression>* "}"
                 | "print" <expression>
+                | "let" <IDENTIFIER> ":" <type> "=" <expression>
                 | <IDENTIFIER> "(" <args>? ")"
 <args>        ::= <expression> ( "," <expression> )*
 ```
@@ -73,7 +73,8 @@ Source Code
 - Comparison: `>`, `>=`, `<`, `<=`
 - Equality: `==`, `!=`
 - Logical: `&&`, `||`, `!`
-- Assignment: `=` (right-associative, chainable: `x = y = 1`)
+- Declaration: `let x: type = expr` (declares and initializes; shadows if name already exists)
+- Assignment: `=` (reassigns a declared variable; error if undeclared)
 - Grouping: `()`
 - Control flow: `if`/`else`, `while`
 - Output: `print` (prints value, returns it)
@@ -92,7 +93,6 @@ src/
 ├── lexer.rs     # Tokenization
 ├── parser.rs    # AST construction
 ├── qbe.rs       # QBE IR compiler
-├── repl.rs      # REPL + tree-walking interpreter
 └── grammar.bnf  # Formal grammar spec
 examples/
 └── main.sl      # Example program
@@ -103,9 +103,8 @@ examples/
 ### Commands
 ```bash
 cargo build              # Build
-cargo test               # Run tests (55 tests)
+cargo test               # Run tests
 cargo run -- <file.sl>   # Compile file to QBE IR
-cargo run -- --repl      # Start tree-walking REPL
 bash run.sh              # Full pipeline: compile → qbe → cc → run
 ```
 
@@ -115,8 +114,8 @@ cargo run ./examples/main.sl && qbe -o .build/out.s .build/main.qbe && cc .build
 ```
 
 ### Testing
-- Lexer: 33 tests
-- QBE compiler: 22 tests (literals, arithmetic, comparisons, logical ops, variables, if, while, print, functions)
+- Lexer tests: tokenization of all token types
+- QBE compiler tests: literals, arithmetic, comparisons, logical ops, variables, let, if, while, print, functions
 
 ## Coding Conventions
 
@@ -130,8 +129,6 @@ cargo run ./examples/main.sl && qbe -o .build/out.s .build/main.qbe && cc .build
 - Add tests for new functionality
 
 ## Planned Next Steps
-
-1. `let` for explicit variable declaration
 
 ## Deferred
 - Structured error reporting with spans

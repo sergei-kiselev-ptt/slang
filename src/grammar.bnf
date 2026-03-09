@@ -18,7 +18,9 @@
                 | <if_expr>
                 | <while_expr>
                 | <print_expr>
+                | <let_expr>
                 | <call_expr> ;
+<let_expr>    ::= "let" <IDENTIFIER> ":" <type> "=" <expression> ;
 <print_expr>  ::= "print" <expression> ;
 <call_expr>   ::= <IDENTIFIER> "(" <args>? ")" ;
 <args>        ::= <expression> ( "," <expression> )* ;

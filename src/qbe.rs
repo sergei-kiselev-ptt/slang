@@ -150,7 +150,7 @@ impl Compiler {
             last_tmp = tmp;
             last_ty = ty;
             if terminates {
-                break; // don't compile dead code after a terminator
+                break;
             }
         }
         Ok((last_tmp, last_ty, all_instrs))
@@ -268,6 +268,11 @@ impl Compiler {
             .into()),
             Expr::Call { name, args } => self.compile_func_call(name, args),
             Expr::Print { value } => self.compile_print(value),
+            Expr::Let {
+                name,
+                type_ann,
+                value,
+            } => self.compile_let(name, type_ann, value),
         }
     }
 
@@ -345,14 +350,31 @@ impl Compiler {
         let slot = match self.vars.get(&var_name) {
             Some((slot, _)) => slot.clone(),
             None => {
-                let slot = self.next_tmp();
-                instructions.push(ty.alloc_instr(&slot));
-                self.vars.insert(var_name, (slot.clone(), ty.clone()));
-                slot
+                return Err(QbeError::CompilationError(format!(
+                    "undefined variable '{}': use 'let' to declare it first",
+                    var_name
+                ))
+                .into())
             }
         };
         instructions.push(ty.store_instr(&val_tmp, &slot));
         Ok((val_tmp, ty, instructions))
+    }
+
+    fn compile_let(
+        &mut self,
+        name: &crate::lexer::Token,
+        type_ann: &crate::parser::TypeAnnotation,
+        value: &Box<Expr>,
+    ) -> Result<(String, ResType, Vec<String>)> {
+        let declared_ty = res_type_from_annotation(type_ann);
+        let (val_tmp, _, mut instructions) = self.compile_expr(value)?;
+        let slot = self.next_tmp();
+        instructions.push(declared_ty.alloc_instr(&slot));
+        instructions.push(declared_ty.store_instr(&val_tmp, &slot));
+        self.vars
+            .insert(name.lexeme.clone(), (slot, declared_ty.clone()));
+        Ok((val_tmp, declared_ty, instructions))
     }
 
     fn compile_while(
@@ -687,32 +709,39 @@ mod tests {
 
     #[test]
     fn assign_number() {
-        let (tmp, ty, instrs) = compile_expr("x = 42");
+        let tokens = parse_into_tokens("let x: num = 0").unwrap();
+        let mut compiler = Compiler::new();
+        compiler.compile_expr(&Parser::new(tokens).parse()).unwrap();
+
+        let tokens = parse_into_tokens("x = 42").unwrap();
+        let (tmp, ty, instrs) = compiler.compile_expr(&Parser::new(tokens).parse()).unwrap();
         assert_eq!(ty, ResType::Number);
-        // alloc, then stored
-        assert!(instrs.iter().any(|i| i.contains("alloc8")));
-        assert!(
-            instrs
-                .iter()
-                .any(|i| i.contains("stored") && i.contains(&tmp))
-        );
+        assert!(instrs.iter().any(|i| i.contains("stored") && i.contains(&tmp)));
     }
 
     #[test]
     fn assign_bool() {
-        let (tmp, ty, instrs) = compile_expr("flag = true");
+        let tokens = parse_into_tokens("let flag: bool = false").unwrap();
+        let mut compiler = Compiler::new();
+        compiler.compile_expr(&Parser::new(tokens).parse()).unwrap();
+
+        let tokens = parse_into_tokens("flag = true").unwrap();
+        let (tmp, ty, instrs) = compiler.compile_expr(&Parser::new(tokens).parse()).unwrap();
         assert_eq!(ty, ResType::Bool);
-        assert!(instrs.iter().any(|i| i.contains("alloc4")));
-        assert!(
-            instrs
-                .iter()
-                .any(|i| i.contains("storew") && i.contains(&tmp))
-        );
+        assert!(instrs.iter().any(|i| i.contains("storew") && i.contains(&tmp)));
+    }
+
+    #[test]
+    fn assign_undeclared_errors() {
+        let tokens = parse_into_tokens("x = 42").unwrap();
+        let mut compiler = Compiler::new();
+        let result = compiler.compile_expr(&Parser::new(tokens).parse());
+        assert!(result.is_err());
     }
 
     #[test]
     fn variable_read_number() {
-        let tokens = crate::lexer::parse_into_tokens("x = 5").unwrap();
+        let tokens = crate::lexer::parse_into_tokens("let x: num = 5").unwrap();
         let mut parser = crate::parser::Parser::new(tokens);
         let assign = parser.parse();
         let mut compiler = Compiler::new();
@@ -800,6 +829,38 @@ mod tests {
             instrs.last().unwrap(),
             &format!("call $printf(l $fmt_print_d, ..., d {})", tmp)
         );
+    }
+
+    #[test]
+    fn let_number() {
+        let (tmp, ty, instrs) = compile_expr("let x: num = 42");
+        assert_eq!(ty, ResType::Number);
+        assert!(instrs.iter().any(|i| i.contains("alloc8")));
+        assert!(instrs.iter().any(|i| i.contains("stored") && i.contains(&tmp)));
+    }
+
+    #[test]
+    fn let_bool() {
+        let (tmp, ty, instrs) = compile_expr("let flag: bool = true");
+        assert_eq!(ty, ResType::Bool);
+        assert!(instrs.iter().any(|i| i.contains("alloc4")));
+        assert!(instrs.iter().any(|i| i.contains("storew") && i.contains(&tmp)));
+    }
+
+    #[test]
+    fn let_variable_readable() {
+        let tokens = parse_into_tokens("let x: num = 10").unwrap();
+        let mut parser = Parser::new(tokens);
+        let let_expr = parser.parse();
+        let mut compiler = Compiler::new();
+        compiler.compile_expr(&let_expr).unwrap();
+
+        let tokens = parse_into_tokens("x").unwrap();
+        let mut parser = Parser::new(tokens);
+        let var = parser.parse();
+        let (tmp, ty, instrs) = compiler.compile_expr(&var).unwrap();
+        assert_eq!(ty, ResType::Number);
+        assert!(instrs[0].contains("loadd") && instrs[0].starts_with(&tmp));
     }
 
     fn compile_program(source: &str) -> Vec<String> {

@@ -38,6 +38,7 @@ pub enum TokenType {
     Print,
     Func,
     Return,
+    Let,
 
     // Type keywords
     NumType,
@@ -310,6 +311,13 @@ fn return_kw() -> Token {
     }
 }
 
+fn let_kw() -> Token {
+    Token {
+        token_type: TokenType::Let,
+        lexeme: "let".to_string(),
+    }
+}
+
 fn num_type_kw() -> Token {
     Token {
         token_type: TokenType::NumType,
@@ -522,6 +530,13 @@ fn scan_keyword(input: &[char], start: usize) -> (Option<Token>, usize) {
         && (slice.len() == 6 || is_word_boundary(slice[6]))
     {
         return (Some(return_kw()), start + 6);
+    }
+
+    if slice.len() >= 3
+        && slice.starts_with(&['l', 'e', 't'])
+        && (slice.len() == 3 || is_word_boundary(slice[3]))
+    {
+        return (Some(let_kw()), start + 3);
     }
 
     (None, 0)

@@ -61,6 +61,11 @@ pub enum Expr {
         name: Token,
         args: Vec<Expr>,
     },
+    Let {
+        name: Token,
+        type_ann: TypeAnnotation,
+        value: Box<Expr>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -372,6 +377,26 @@ impl Parser {
             };
         }
 
+        if self.match_token(&[TokenType::Let]) {
+            if !self.match_token(&[TokenType::Identifier]) {
+                panic!("Expected variable name after 'let'");
+            }
+            let name = self.previous().clone();
+            if !self.match_token(&[TokenType::Colon]) {
+                panic!("Expected ':' after variable name in 'let'");
+            }
+            let type_ann = self.parse_type();
+            if !self.match_token(&[TokenType::Equal]) {
+                panic!("Expected '=' after type in 'let'");
+            }
+            let value = self.parse_expr();
+            return Expr::Let {
+                name,
+                type_ann,
+                value: Box::new(value),
+            };
+        }
+
         if self.match_token(&[TokenType::True]) {
             return Expr::Literal(LiteralValue::Bool(true));
         }
@@ -514,6 +539,7 @@ impl Expr {
             } => format!("({} {} {})", operator.lexeme, left.as_str(), right.as_str()),
             Expr::Variable { name } => name.lexeme.clone(),
             Expr::Assign { name, value } => format!("({} {} {})", "=", name.lexeme, value.as_str()),
+            Expr::Let { name, value, .. } => format!("(let {} = {})", name.lexeme, value.as_str()),
             Expr::While { condition, body } => format!(
                 "(while {} {{ {} }})",
                 condition.as_str(),

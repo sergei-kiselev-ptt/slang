@@ -9,11 +9,11 @@ func fib_dyn(n: num) -> num {
     if n <= 1 {
         return n
     }
-    a = 0
-    b = 1
-    iter = 1
+    let a: num = 0
+    let b: num = 1
+    let iter: num = 1
     while iter < n {
-        c = b
+        let c: num = b
         b = a + b
         a = c
         iter = iter + 1
@@ -22,8 +22,8 @@ func fib_dyn(n: num) -> num {
     return b
 }
 
-x = 0
-while x < 500 {
+let x: num = 1
+while x < 50 {
     print fib_dyn(x)
     x = x + 1
 }
