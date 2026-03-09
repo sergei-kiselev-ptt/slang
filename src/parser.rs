@@ -29,7 +29,7 @@ pub struct Parser {
 
 #[derive(Debug, Clone)]
 pub enum Expr {
-    Literal(LiteralValue),
+    Literal(LiteralValue, Span),
     Unary {
         operator: Token,
         right: Box<Expr>,
@@ -345,8 +345,9 @@ impl Parser {
         }
 
         if self.match_token(&[TokenType::Number]) {
+            let span = self.previous().span;
             if let Ok(parsed) = self.previous().clone().lexeme.parse() {
-                return Ok(Expr::Literal(LiteralValue::Number(parsed)));
+                return Ok(Expr::Literal(LiteralValue::Number(parsed), span));
             }
             return Err(self.error("invalid number literal"));
         }
@@ -394,11 +395,11 @@ impl Parser {
         }
 
         if self.match_token(&[TokenType::True]) {
-            return Ok(Expr::Literal(LiteralValue::Bool(true)));
+            return Ok(Expr::Literal(LiteralValue::Bool(true), self.previous().span));
         }
 
         if self.match_token(&[TokenType::False]) {
-            return Ok(Expr::Literal(LiteralValue::Bool(false)));
+            return Ok(Expr::Literal(LiteralValue::Bool(false), self.previous().span));
         }
 
         if self.match_token(&[TokenType::Identifier]) {
@@ -515,7 +516,7 @@ impl Parser {
 impl Expr {
     pub fn as_str(&self) -> String {
         match self {
-            Expr::Literal(val) => match val {
+            Expr::Literal(val, _) => match val {
                 LiteralValue::Number(n) => n.to_string(),
                 LiteralValue::String(s) => s.clone(),
                 LiteralValue::Bool(b) => b.to_string(),
@@ -591,6 +592,23 @@ impl Expr {
             }
         }
     }
+
+    pub fn span(&self) -> Option<Span> {
+        match self {
+            Expr::Unary { operator, .. } => Some(operator.span),
+            Expr::Binary { operator, .. } => Some(operator.span),
+            Expr::Variable { name } => Some(name.span),
+            Expr::Assign { name, .. } => Some(name.span),
+            Expr::FuncDef { name, .. } => Some(name.span),
+            Expr::Call { name, .. } => Some(name.span),
+            Expr::Let { name, .. } => Some(name.span),
+            Expr::Print { value } => value.span(),
+            Expr::Return { value } => value.span(),
+            Expr::If { condition, .. } => condition.span(),
+            Expr::While { condition, .. } => condition.span(),
+            Expr::Literal(_, span) => Some(*span),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -635,7 +653,7 @@ mod tests {
     #[test]
     fn error_let_missing_type() {
         let err = parse("let x = 5").unwrap_err();
-        assert!(err.message.contains("expected ':'"));
+        assert!(err.message.contains("expected ': <type>'"));
     }
 
     #[test]

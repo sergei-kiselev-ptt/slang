@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use thiserror::Error;
 
 use crate::{
-    lexer::TokenType,
+    lexer::{Span, TokenType},
     parser::{Expr, LiteralValue, TypeAnnotation},
 };
 
@@ -168,11 +168,9 @@ impl Compiler {
             TokenType::Star => "mul",
             TokenType::Slash => "div",
             _ => {
-                return Err(QbeError::CompilationError(format!(
-                    "{:?} is not an arithmetic operator",
-                    op
-                ))
-                .into());
+                return Err(
+                    QbeError::no_span(format!("{:?} is not an arithmetic operator", op)).into(),
+                );
             }
         };
         let tmp = self.next_tmp();
@@ -200,11 +198,9 @@ impl Compiler {
             (TokenType::Less, _) => "cltd",
             (TokenType::LessEqual, _) => "cled",
             _ => {
-                return Err(QbeError::CompilationError(format!(
-                    "{:?} is not a comparison operator",
-                    op
-                ))
-                .into());
+                return Err(
+                    QbeError::no_span(format!("{:?} is not a comparison operator", op)).into(),
+                );
             }
         };
         let tmp = self.next_tmp();
@@ -225,11 +221,9 @@ impl Compiler {
             TokenType::LogicalOr => "or",
             TokenType::LogicalAnd => "and",
             _ => {
-                return Err(QbeError::CompilationError(format!(
-                    "{:?} is not a logical operator",
-                    op
-                ))
-                .into());
+                return Err(
+                    QbeError::no_span(format!("{:?} is not a logical operator", op)).into(),
+                );
             }
         };
         let tmp = self.next_tmp();
@@ -242,7 +236,7 @@ impl Compiler {
 
     fn compile_expr(&mut self, expr: &Expr) -> Result<(String, ResType, Vec<String>)> {
         match expr {
-            Expr::Literal(literal_value) => self.compile_literal(literal_value),
+            Expr::Literal(literal_value, _) => self.compile_literal(literal_value),
             Expr::Unary { operator, right } => self.compile_unary(operator, right),
             Expr::Binary {
                 left,
@@ -262,10 +256,9 @@ impl Compiler {
                 instructions.push(format!("ret {}", val_tmp));
                 Ok((val_tmp, ty, instructions))
             }
-            Expr::FuncDef { .. } => Err(QbeError::CompilationError(
-                "function definitions must be at the top level".to_string(),
-            )
-            .into()),
+            Expr::FuncDef { .. } => {
+                Err(QbeError::no_span("function definitions must be at the top level").into())
+            }
             Expr::Call { name, args } => self.compile_func_call(name, args),
             Expr::Print { value } => self.compile_print(value),
             Expr::Let {
@@ -319,7 +312,13 @@ impl Compiler {
                 instructions.push(format!("{} =w ceqw {}, 0", tmp, right_tmp));
                 Ok((tmp, ResType::Bool, instructions))
             }
-            _ => panic!("Unknown unary operator: {:?}", operator.token_type),
+            _ => {
+                return Err(QbeError::new(
+                    format!("unknown unary operator '{}'", operator.lexeme),
+                    operator.span,
+                )
+                .into());
+            }
         }
     }
 
@@ -330,7 +329,7 @@ impl Compiler {
         let var_name = &name.lexeme;
         match self.vars.get(var_name) {
             None => {
-                Err(QbeError::CompilationError(format!("undefined variable '{}'", var_name)).into())
+                Err(QbeError::new(format!("undefined variable '{}'", var_name), name.span).into())
             }
             Some((slot, ty)) => {
                 let (slot, ty) = (slot.clone(), ty.clone());
@@ -350,15 +349,18 @@ impl Compiler {
         let slot = match self.vars.get(&var_name) {
             Some((slot, _)) => slot.clone(),
             None => {
-                return Err(QbeError::CompilationError(format!(
-                    "undefined variable '{}': use 'let' to declare it first",
-                    var_name
-                ))
-                .into())
+                return Err(QbeError::new(
+                    format!(
+                        "undefined variable '{}': use 'let' to declare it first",
+                        var_name
+                    ),
+                    name.span,
+                )
+                .into());
             }
         };
         instructions.push(ty.store_instr(&val_tmp, &slot));
-        Ok((val_tmp, ty, instructions))
+        Ok((String::new(), ResType::Void, instructions))
     }
 
     fn compile_let(
@@ -389,7 +391,15 @@ impl Compiler {
         let mut out = vec![];
         out.push(format!("jmp {}", cond_label));
         out.push(cond_label.clone());
-        let (cond_tmp, _, cond_instrs) = self.compile_expr(condition)?;
+        let (cond_tmp, cond_ty, cond_instrs) = self.compile_expr(condition)?;
+        if !matches!(cond_ty, ResType::Bool) {
+            let span = condition.span().unwrap_or_default();
+            return Err(QbeError::new(
+                format!("while condition must be a bool, got {:?}", cond_ty),
+                span,
+            )
+            .into());
+        }
         out.extend(cond_instrs);
         out.push(format!("jnz {}, {}, {}", cond_tmp, body_label, end_label));
         out.push(body_label);
@@ -411,7 +421,15 @@ impl Compiler {
         then_branch: &Vec<Expr>,
         else_branch: &Option<Vec<Expr>>,
     ) -> std::result::Result<(String, ResType, Vec<String>), anyhow::Error> {
-        let (cond_tmp, _, cond_instrs) = self.compile_expr(condition)?;
+        let (cond_tmp, cond_ty, cond_instrs) = self.compile_expr(condition)?;
+        if !matches!(cond_ty, ResType::Bool) {
+            let span = condition.span().unwrap_or_default();
+            return Err(QbeError::new(
+                format!("if condition must be a boolean, got {:?}", cond_ty),
+                span,
+            )
+            .into());
+        }
         let (then_tmp, then_ty, then_instrs) = self.compile_block(then_branch)?;
         let else_compiled = else_branch
             .as_ref()
@@ -472,17 +490,18 @@ impl Compiler {
         let sig = self
             .functions
             .get(func_name)
-            .ok_or_else(|| {
-                QbeError::CompilationError(format!("undefined function '{}'", func_name))
-            })?
+            .ok_or_else(|| QbeError::new(format!("undefined function '{}'", func_name), name.span))?
             .clone();
         if args.len() != sig.params.len() {
-            return Err(QbeError::CompilationError(format!(
-                "function '{}' expects {} arguments, got {}",
-                func_name,
-                sig.params.len(),
-                args.len()
-            ))
+            return Err(QbeError::new(
+                format!(
+                    "function '{}' expects {} arguments, got {}",
+                    func_name,
+                    sig.params.len(),
+                    args.len()
+                ),
+                name.span,
+            )
             .into());
         }
         let mut instructions = vec![];
@@ -512,6 +531,10 @@ impl Compiler {
     ) -> std::result::Result<(String, ResType, Vec<String>), anyhow::Error> {
         let (val_tmp, ty, mut instructions) = self.compile_expr(value)?;
         match ty {
+            ResType::Void => {
+                let span = value.span().unwrap_or_default();
+                return Err(QbeError::new("cannot print a void value (assignment has no value)", span).into());
+            }
             ResType::Number => {
                 instructions.push(format!("call $printf(l $fmt_print_d, ..., d {})", val_tmp));
             }
@@ -544,10 +567,13 @@ impl Compiler {
         let mut instructions = l_instructions;
         instructions.extend(r_instructions);
         if l_type != r_type {
-            return Err(QbeError::CompilationError(format!(
-                "type mismatch in binary expression: left is {:?}, right is {:?}",
-                l_type, r_type
-            ))
+            return Err(QbeError::new(
+                format!(
+                    "type mismatch in '{}': left is {:?}, right is {:?}",
+                    operator.lexeme, l_type, r_type
+                ),
+                operator.span,
+            )
             .into());
         }
         use TokenType::*;
@@ -560,10 +586,10 @@ impl Compiler {
             }
             LogicalOr | LogicalAnd => self.emit_logical(&operator.token_type, &l_tmp, &r_tmp)?,
             _ => {
-                return Err(QbeError::CompilationError(format!(
-                    "{} cannot be a binary operator",
-                    operator.lexeme
-                ))
+                return Err(QbeError::new(
+                    format!("'{}' cannot be a binary operator", operator.lexeme),
+                    operator.span,
+                )
                 .into());
             }
         };
@@ -592,9 +618,37 @@ fn res_type_from_annotation(ann: &TypeAnnotation) -> ResType {
 }
 
 #[derive(Error, Debug)]
-enum QbeError {
-    #[error("{0}")]
-    CompilationError(String),
+pub enum QbeError {
+    #[error("{}: {message}", span.map(|s| s.to_string()).unwrap_or_default())]
+    CompilationError { message: String, span: Option<Span> },
+}
+
+impl QbeError {
+    fn new(message: impl Into<String>, span: Span) -> Self {
+        QbeError::CompilationError {
+            message: message.into(),
+            span: Some(span),
+        }
+    }
+
+    fn no_span(message: impl Into<String>) -> Self {
+        QbeError::CompilationError {
+            message: message.into(),
+            span: None,
+        }
+    }
+
+    pub fn span(&self) -> Option<Span> {
+        match self {
+            QbeError::CompilationError { span, .. } => *span,
+        }
+    }
+
+    pub fn message(&self) -> &str {
+        match self {
+            QbeError::CompilationError { message, .. } => message,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -613,6 +667,7 @@ pub struct Compiler {
 enum ResType {
     Number, // QBE type 'd' (double)
     Bool,   // QBE type 'w' (word)
+    Void,   // assignment / statement — has no runtime value
 }
 
 impl ResType {
@@ -620,6 +675,7 @@ impl ResType {
         match self {
             ResType::Number => format!("{} =l alloc8 8", slot),
             ResType::Bool => format!("{} =l alloc4 4", slot),
+            ResType::Void => panic!("cannot alloc Void"),
         }
     }
 
@@ -627,6 +683,7 @@ impl ResType {
         match self {
             ResType::Number => format!("stored {}, {}", val, slot),
             ResType::Bool => format!("storew {}, {}", val, slot),
+            ResType::Void => panic!("cannot store Void"),
         }
     }
 
@@ -634,6 +691,7 @@ impl ResType {
         match self {
             ResType::Number => format!("{} =d loadd {}", tmp, slot),
             ResType::Bool => format!("{} =w loadsw {}", tmp, slot),
+            ResType::Void => panic!("cannot load Void"),
         }
     }
 
@@ -641,6 +699,7 @@ impl ResType {
         match self {
             ResType::Number => format!("{} =d copy d_0", tmp),
             ResType::Bool => format!("{} =w copy 0", tmp),
+            ResType::Void => panic!("cannot init Void"),
         }
     }
 
@@ -648,6 +707,7 @@ impl ResType {
         match self {
             ResType::Number => "d",
             ResType::Bool => "w",
+            ResType::Void => panic!("Void has no QBE ABI type"),
         }
     }
 }
@@ -712,24 +772,36 @@ mod tests {
     fn assign_number() {
         let tokens = parse_into_tokens("let x: num = 0").unwrap();
         let mut compiler = Compiler::new();
-        compiler.compile_expr(&Parser::new(tokens).parse().unwrap()).unwrap();
+        compiler
+            .compile_expr(&Parser::new(tokens).parse().unwrap())
+            .unwrap();
 
         let tokens = parse_into_tokens("x = 42").unwrap();
-        let (tmp, ty, instrs) = compiler.compile_expr(&Parser::new(tokens).parse().unwrap()).unwrap();
-        assert_eq!(ty, ResType::Number);
-        assert!(instrs.iter().any(|i| i.contains("stored") && i.contains(&tmp)));
+        let (_, ty, instrs) = compiler
+            .compile_expr(&Parser::new(tokens).parse().unwrap())
+            .unwrap();
+        assert_eq!(ty, ResType::Void);
+        assert!(instrs.iter().any(|i| i.contains("stored")));
     }
 
     #[test]
     fn assign_bool() {
         let tokens = parse_into_tokens("let flag: bool = false").unwrap();
         let mut compiler = Compiler::new();
-        compiler.compile_expr(&Parser::new(tokens).parse().unwrap()).unwrap();
+        compiler
+            .compile_expr(&Parser::new(tokens).parse().unwrap())
+            .unwrap();
 
         let tokens = parse_into_tokens("flag = true").unwrap();
-        let (tmp, ty, instrs) = compiler.compile_expr(&Parser::new(tokens).parse().unwrap()).unwrap();
-        assert_eq!(ty, ResType::Bool);
-        assert!(instrs.iter().any(|i| i.contains("storew") && i.contains(&tmp)));
+        let (_, ty, instrs) = compiler
+            .compile_expr(&Parser::new(tokens).parse().unwrap())
+            .unwrap();
+        assert_eq!(ty, ResType::Void);
+        assert!(
+            instrs
+                .iter()
+                .any(|i| i.contains("storew"))
+        );
     }
 
     #[test]
@@ -837,7 +909,11 @@ mod tests {
         let (tmp, ty, instrs) = compile_expr("let x: num = 42");
         assert_eq!(ty, ResType::Number);
         assert!(instrs.iter().any(|i| i.contains("alloc8")));
-        assert!(instrs.iter().any(|i| i.contains("stored") && i.contains(&tmp)));
+        assert!(
+            instrs
+                .iter()
+                .any(|i| i.contains("stored") && i.contains(&tmp))
+        );
     }
 
     #[test]
@@ -845,7 +921,11 @@ mod tests {
         let (tmp, ty, instrs) = compile_expr("let flag: bool = true");
         assert_eq!(ty, ResType::Bool);
         assert!(instrs.iter().any(|i| i.contains("alloc4")));
-        assert!(instrs.iter().any(|i| i.contains("storew") && i.contains(&tmp)));
+        assert!(
+            instrs
+                .iter()
+                .any(|i| i.contains("storew") && i.contains(&tmp))
+        );
     }
 
     #[test]

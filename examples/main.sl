@@ -22,8 +22,15 @@ func fib_dyn(n: num) -> num {
     return b
 }
 
+
+
 let x: num = 1
-while x < 50 {
-    print fib_dyn(x)
-    x = x + 1
+
+if x == true {
+    print 1
+    x + 2
+} else {
+    print 999
 }
+
+print 100

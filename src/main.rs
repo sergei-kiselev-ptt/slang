@@ -49,13 +49,17 @@ fn process_file(file_path: &str) -> Result<(), Error> {
     let tokens = parse_into_tokens(&content_str)?;
     let mut parser = Parser::new(tokens);
     let exprs = parser.parse_program().map_err(|e| {
-        print_error(file_path, &content_str, &e);
+        print_parse_error(file_path, &content_str, &e);
         Error::new(std::io::ErrorKind::Other, e.to_string())
     })?;
 
     let mut compiler = Compiler::new();
     let text = compiler.compile(exprs).map_err(|e| {
-        eprintln!("error: {}", e);
+        if let Some(qbe_err) = e.downcast_ref::<qbe::QbeError>() {
+            print_compile_error(file_path, &content_str, qbe_err.message(), qbe_err.span());
+        } else {
+            eprintln!("error: {}", e);
+        }
         Error::new(std::io::ErrorKind::Other, e.to_string())
     })?;
     println!("------------------");
@@ -68,24 +72,34 @@ fn process_file(file_path: &str) -> Result<(), Error> {
     Ok(())
 }
 
-fn print_error(file_path: &str, source: &str, err: &parser::ParseError) {
-    let span = &err.span;
-    eprintln!(
-        "error: {} [{}:{}:{}]",
-        err.message, file_path, span.line, span.col
-    );
-    // Show the source line
-    if span.line > 0 {
-        if let Some(line) = source.lines().nth(span.line - 1) {
-            eprintln!("  {} | {}", span.line, line);
-            // Underline the error position
-            let padding = format!("{}", span.line).len() + 3 + span.col.saturating_sub(1);
-            let underline_len = span.len.max(1);
-            eprintln!(
-                "{}{}",
-                " ".repeat(padding),
-                "^".repeat(underline_len)
-            );
+fn print_parse_error(file_path: &str, source: &str, err: &parser::ParseError) {
+    print_compile_error(file_path, source, &err.message, Some(err.span));
+}
+
+fn print_compile_error(
+    file_path: &str,
+    source: &str,
+    message: &str,
+    span: Option<lexer::Span>,
+) {
+    if let Some(span) = span {
+        eprintln!(
+            "error: {} [{}:{}:{}]",
+            message, file_path, span.line, span.col
+        );
+        if span.line > 0 {
+            if let Some(line) = source.lines().nth(span.line - 1) {
+                eprintln!("  {} | {}", span.line, line);
+                let padding = format!("{}", span.line).len() + 3 + span.col.saturating_sub(1);
+                let underline_len = span.len.max(1);
+                eprintln!(
+                    "{}{}",
+                    " ".repeat(padding),
+                    "^".repeat(underline_len)
+                );
+            }
         }
+    } else {
+        eprintln!("error: {}", message);
     }
 }
