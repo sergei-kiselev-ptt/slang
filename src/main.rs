@@ -76,12 +76,7 @@ fn print_parse_error(file_path: &str, source: &str, err: &parser::ParseError) {
     print_compile_error(file_path, source, &err.message, Some(err.span));
 }
 
-fn print_compile_error(
-    file_path: &str,
-    source: &str,
-    message: &str,
-    span: Option<lexer::Span>,
-) {
+fn print_compile_error(file_path: &str, source: &str, message: &str, span: Option<lexer::Span>) {
     if let Some(span) = span {
         eprintln!(
             "error: {} [{}:{}:{}]",
@@ -92,11 +87,7 @@ fn print_compile_error(
                 eprintln!("  {} | {}", span.line, line);
                 let padding = format!("{}", span.line).len() + 3 + span.col.saturating_sub(1);
                 let underline_len = span.len.max(1);
-                eprintln!(
-                    "{}{}",
-                    " ".repeat(padding),
-                    "^".repeat(underline_len)
-                );
+                eprintln!("{}{}", " ".repeat(padding), "^".repeat(underline_len));
             }
         }
     } else {

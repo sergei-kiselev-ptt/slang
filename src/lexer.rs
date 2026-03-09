@@ -127,10 +127,7 @@ pub fn parse_into_tokens(input: &str) -> Result<Vec<Token>, Error> {
 fn scan_next_token(input: &Vec<char>, current: usize) -> Result<(Option<Token>, usize), Error> {
     match input[current] {
         ' ' | '\t' | '\r' => Ok((None, current + 1)),
-        '\n' => Ok((
-            Some(tok(TokenType::Newline, "\n")),
-            current + 1,
-        )),
+        '\n' => Ok((Some(tok(TokenType::Newline, "\n")), current + 1)),
         ':' => Ok((Some(colon()), current + 1)),
         ',' => Ok((Some(comma()), current + 1)),
         '-' => {
@@ -194,13 +191,19 @@ fn scan_next_token(input: &Vec<char>, current: usize) -> Result<(Option<Token>, 
             if current + 1 < input.len() && input[current + 1] == '|' {
                 return Ok((Some(logical_or()), current + 2));
             }
-            return Err(Error::new(ErrorKind::Other, "single '|' operator is not supported"));
+            return Err(Error::new(
+                ErrorKind::Other,
+                "single '|' operator is not supported",
+            ));
         }
         '&' => {
             if current + 1 < input.len() && input[current + 1] == '&' {
                 return Ok((Some(logical_and()), current + 2));
             }
-            return Err(Error::new(ErrorKind::Other, "single '&' operator is not supported"));
+            return Err(Error::new(
+                ErrorKind::Other,
+                "single '&' operator is not supported",
+            ));
         }
         other => {
             if let (Some(keyword), current) = scan_keyword(input, current) {
@@ -246,35 +249,93 @@ fn tok(token_type: TokenType, lexeme: &str) -> Token {
     }
 }
 
-fn plus() -> Token { tok(TokenType::Plus, "+") }
-fn star() -> Token { tok(TokenType::Star, "*") }
-fn slash() -> Token { tok(TokenType::Slash, "/") }
-fn left_paren() -> Token { tok(TokenType::LeftParen, "(") }
-fn right_paren() -> Token { tok(TokenType::RightParen, ")") }
-fn left_brace() -> Token { tok(TokenType::LeftBrace, "{") }
-fn right_brace() -> Token { tok(TokenType::RightBrace, "}") }
-fn if_kw() -> Token { tok(TokenType::If, "if") }
-fn else_kw() -> Token { tok(TokenType::Else, "else") }
-fn while_kw() -> Token { tok(TokenType::While, "while") }
-fn print_kw() -> Token { tok(TokenType::Print, "print") }
-fn func_kw() -> Token { tok(TokenType::Func, "func") }
-fn return_kw() -> Token { tok(TokenType::Return, "return") }
-fn let_kw() -> Token { tok(TokenType::Let, "let") }
-fn num_type_kw() -> Token { tok(TokenType::NumType, "num") }
-fn bool_type_kw() -> Token { tok(TokenType::BoolType, "bool") }
-fn arrow() -> Token { tok(TokenType::Arrow, "->") }
-fn colon() -> Token { tok(TokenType::Colon, ":") }
-fn comma() -> Token { tok(TokenType::Comma, ",") }
-fn equal() -> Token { tok(TokenType::Equal, "=") }
-fn equal_equal() -> Token { tok(TokenType::EqualEqual, "==") }
-fn bang() -> Token { tok(TokenType::Bang, "!") }
-fn bang_equal() -> Token { tok(TokenType::BangEqual, "!=") }
-fn logical_and() -> Token { tok(TokenType::LogicalAnd, "&&") }
-fn logical_or() -> Token { tok(TokenType::LogicalOr, "||") }
-fn greater() -> Token { tok(TokenType::Greater, ">") }
-fn greater_equal() -> Token { tok(TokenType::GreaterEqual, ">=") }
-fn less() -> Token { tok(TokenType::Less, "<") }
-fn less_equal() -> Token { tok(TokenType::LessEqual, "<=") }
+fn plus() -> Token {
+    tok(TokenType::Plus, "+")
+}
+fn star() -> Token {
+    tok(TokenType::Star, "*")
+}
+fn slash() -> Token {
+    tok(TokenType::Slash, "/")
+}
+fn left_paren() -> Token {
+    tok(TokenType::LeftParen, "(")
+}
+fn right_paren() -> Token {
+    tok(TokenType::RightParen, ")")
+}
+fn left_brace() -> Token {
+    tok(TokenType::LeftBrace, "{")
+}
+fn right_brace() -> Token {
+    tok(TokenType::RightBrace, "}")
+}
+fn if_kw() -> Token {
+    tok(TokenType::If, "if")
+}
+fn else_kw() -> Token {
+    tok(TokenType::Else, "else")
+}
+fn while_kw() -> Token {
+    tok(TokenType::While, "while")
+}
+fn print_kw() -> Token {
+    tok(TokenType::Print, "print")
+}
+fn func_kw() -> Token {
+    tok(TokenType::Func, "func")
+}
+fn return_kw() -> Token {
+    tok(TokenType::Return, "return")
+}
+fn let_kw() -> Token {
+    tok(TokenType::Let, "let")
+}
+fn num_type_kw() -> Token {
+    tok(TokenType::NumType, "num")
+}
+fn bool_type_kw() -> Token {
+    tok(TokenType::BoolType, "bool")
+}
+fn arrow() -> Token {
+    tok(TokenType::Arrow, "->")
+}
+fn colon() -> Token {
+    tok(TokenType::Colon, ":")
+}
+fn comma() -> Token {
+    tok(TokenType::Comma, ",")
+}
+fn equal() -> Token {
+    tok(TokenType::Equal, "=")
+}
+fn equal_equal() -> Token {
+    tok(TokenType::EqualEqual, "==")
+}
+fn bang() -> Token {
+    tok(TokenType::Bang, "!")
+}
+fn bang_equal() -> Token {
+    tok(TokenType::BangEqual, "!=")
+}
+fn logical_and() -> Token {
+    tok(TokenType::LogicalAnd, "&&")
+}
+fn logical_or() -> Token {
+    tok(TokenType::LogicalOr, "||")
+}
+fn greater() -> Token {
+    tok(TokenType::Greater, ">")
+}
+fn greater_equal() -> Token {
+    tok(TokenType::GreaterEqual, ">=")
+}
+fn less() -> Token {
+    tok(TokenType::Less, "<")
+}
+fn less_equal() -> Token {
+    tok(TokenType::LessEqual, "<=")
+}
 
 fn is_valid_identifier_character(char: char) -> bool {
     char.is_alphabetic() || char.is_numeric() || char == '_'
@@ -437,9 +498,15 @@ fn scan_number(input: &[char], start: usize) -> (Option<Token>, usize) {
     (Some(number(acc)), current)
 }
 
-fn true_l() -> Token { tok(TokenType::True, "true") }
-fn false_l() -> Token { tok(TokenType::False, "false") }
-fn minus() -> Token { tok(TokenType::Minus, "-") }
+fn true_l() -> Token {
+    tok(TokenType::True, "true")
+}
+fn false_l() -> Token {
+    tok(TokenType::False, "false")
+}
+fn minus() -> Token {
+    tok(TokenType::Minus, "-")
+}
 
 fn number(acc: String) -> Token {
     Token {

@@ -118,10 +118,7 @@ impl Parser {
         let expr = self.parse_expr()?;
         self.skip_newlines();
         if !self.is_at_end() {
-            return Err(self.error(format!(
-                "unexpected token '{}'",
-                self.current().lexeme
-            )));
+            return Err(self.error(format!("unexpected token '{}'", self.current().lexeme)));
         }
         Ok(expr)
     }
@@ -184,7 +181,11 @@ impl Parser {
         } else {
             Err(self.error(format!(
                 "expected type ('num' or 'bool'), found '{}'",
-                if self.is_at_end() { "end of input" } else { &self.current().lexeme }
+                if self.is_at_end() {
+                    "end of input"
+                } else {
+                    &self.current().lexeme
+                }
             )))
         }
     }
@@ -383,7 +384,10 @@ impl Parser {
         if self.match_token(&[TokenType::Let]) {
             self.expect(TokenType::Identifier, "expected variable name after 'let'")?;
             let name = self.previous().clone();
-            self.expect(TokenType::Colon, "expected ': <type>' after variable name in 'let'")?;
+            self.expect(
+                TokenType::Colon,
+                "expected ': <type>' after variable name in 'let'",
+            )?;
             let type_ann = self.parse_type()?;
             self.expect(TokenType::Equal, "expected '=' after type in 'let'")?;
             let value = self.parse_expr()?;
@@ -395,11 +399,17 @@ impl Parser {
         }
 
         if self.match_token(&[TokenType::True]) {
-            return Ok(Expr::Literal(LiteralValue::Bool(true), self.previous().span));
+            return Ok(Expr::Literal(
+                LiteralValue::Bool(true),
+                self.previous().span,
+            ));
         }
 
         if self.match_token(&[TokenType::False]) {
-            return Ok(Expr::Literal(LiteralValue::Bool(false), self.previous().span));
+            return Ok(Expr::Literal(
+                LiteralValue::Bool(false),
+                self.previous().span,
+            ));
         }
 
         if self.match_token(&[TokenType::Identifier]) {
@@ -426,10 +436,7 @@ impl Parser {
             });
         }
 
-        Err(self.error(format!(
-            "unexpected token '{}'",
-            self.current().lexeme
-        )))
+        Err(self.error(format!("unexpected token '{}'", self.current().lexeme)))
     }
 
     fn parse_if(&mut self) -> Result<Expr, ParseError> {

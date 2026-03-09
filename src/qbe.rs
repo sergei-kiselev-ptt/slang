@@ -153,6 +153,7 @@ impl Compiler {
                 break;
             }
         }
+        // TODO: this needs a revisit occasionaly, I'm not really sure returning a last expression type is a good thing
         Ok((last_tmp, last_ty, all_instrs))
     }
 
@@ -533,7 +534,11 @@ impl Compiler {
         match ty {
             ResType::Void => {
                 let span = value.span().unwrap_or_default();
-                return Err(QbeError::new("cannot print a void value (assignment has no value)", span).into());
+                return Err(QbeError::new(
+                    "cannot print a void value (assignment has no value)",
+                    span,
+                )
+                .into());
             }
             ResType::Number => {
                 instructions.push(format!("call $printf(l $fmt_print_d, ..., d {})", val_tmp));
@@ -797,11 +802,7 @@ mod tests {
             .compile_expr(&Parser::new(tokens).parse().unwrap())
             .unwrap();
         assert_eq!(ty, ResType::Void);
-        assert!(
-            instrs
-                .iter()
-                .any(|i| i.contains("storew"))
-        );
+        assert!(instrs.iter().any(|i| i.contains("storew")));
     }
 
     #[test]
