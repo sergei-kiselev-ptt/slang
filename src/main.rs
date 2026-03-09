@@ -1,7 +1,6 @@
 mod lexer;
 mod parser;
 mod qbe;
-mod repl;
 
 use std::fs::read_to_string;
 use std::io::{Error, Write};
@@ -12,7 +11,6 @@ use lexer::parse_into_tokens;
 use log::{debug, error, info};
 use parser::Parser;
 use qbe::Compiler;
-use repl::run_repl;
 use simple_logger::SimpleLogger;
 use time::macros::format_description;
 
@@ -26,11 +24,6 @@ fn main() {
 
     let args = env::args().collect::<Vec<String>>();
     debug!("Args: [{:?}]", &args);
-
-    if args.contains(&"--repl".to_string()) {
-        run_repl();
-        exit(0);
-    }
 
     let filename = &args[1];
 
