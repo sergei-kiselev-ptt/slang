@@ -41,19 +41,21 @@ fn process_file(file_path: &str) -> Result<(), Error> {
         return Err(error);
     }
 
+    let content_str = content.unwrap();
     info!(
         "File content {}\n------------\n{}------------",
-        file_path,
-        content.as_ref().unwrap()
+        file_path, &content_str
     );
-    let content_str = &content.unwrap();
-    let tokens = parse_into_tokens(content_str)?;
+    let tokens = parse_into_tokens(&content_str)?;
     let mut parser = Parser::new(tokens);
-    let exprs = parser.parse_program();
+    let exprs = parser.parse_program().map_err(|e| {
+        print_error(file_path, &content_str, &e);
+        Error::new(std::io::ErrorKind::Other, e.to_string())
+    })?;
 
     let mut compiler = Compiler::new();
     let text = compiler.compile(exprs).map_err(|e| {
-        eprintln!("Compilation error: {}", e);
+        eprintln!("error: {}", e);
         Error::new(std::io::ErrorKind::Other, e.to_string())
     })?;
     println!("------------------");
@@ -63,5 +65,27 @@ fn process_file(file_path: &str) -> Result<(), Error> {
         write!(file, "{}\n", line)?;
     }
     println!("------------------");
-    return Ok(());
+    Ok(())
+}
+
+fn print_error(file_path: &str, source: &str, err: &parser::ParseError) {
+    let span = &err.span;
+    eprintln!(
+        "error: {} [{}:{}:{}]",
+        err.message, file_path, span.line, span.col
+    );
+    // Show the source line
+    if span.line > 0 {
+        if let Some(line) = source.lines().nth(span.line - 1) {
+            eprintln!("  {} | {}", span.line, line);
+            // Underline the error position
+            let padding = format!("{}", span.line).len() + 3 + span.col.saturating_sub(1);
+            let underline_len = span.len.max(1);
+            eprintln!(
+                "{}{}",
+                " ".repeat(padding),
+                "^".repeat(underline_len)
+            );
+        }
+    }
 }

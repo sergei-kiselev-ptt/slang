@@ -544,10 +544,11 @@ impl Compiler {
         let mut instructions = l_instructions;
         instructions.extend(r_instructions);
         if l_type != r_type {
-            println!(
-                "operands in binary expression should be of the same type, got {:?}, {:?}",
+            return Err(QbeError::CompilationError(format!(
+                "type mismatch in binary expression: left is {:?}, right is {:?}",
                 l_type, r_type
-            )
+            ))
+            .into());
         }
         use TokenType::*;
         let (tmp, res_type, instr) = match operator.token_type {
@@ -660,7 +661,7 @@ mod tests {
     fn compile_expr(source: &str) -> (String, ResType, Vec<String>) {
         let tokens = parse_into_tokens(source).unwrap();
         let mut parser = Parser::new(tokens);
-        let expr = parser.parse();
+        let expr = parser.parse().unwrap();
         let mut compiler = Compiler::new();
         compiler.compile_expr(&expr).unwrap()
     }
@@ -711,10 +712,10 @@ mod tests {
     fn assign_number() {
         let tokens = parse_into_tokens("let x: num = 0").unwrap();
         let mut compiler = Compiler::new();
-        compiler.compile_expr(&Parser::new(tokens).parse()).unwrap();
+        compiler.compile_expr(&Parser::new(tokens).parse().unwrap()).unwrap();
 
         let tokens = parse_into_tokens("x = 42").unwrap();
-        let (tmp, ty, instrs) = compiler.compile_expr(&Parser::new(tokens).parse()).unwrap();
+        let (tmp, ty, instrs) = compiler.compile_expr(&Parser::new(tokens).parse().unwrap()).unwrap();
         assert_eq!(ty, ResType::Number);
         assert!(instrs.iter().any(|i| i.contains("stored") && i.contains(&tmp)));
     }
@@ -723,10 +724,10 @@ mod tests {
     fn assign_bool() {
         let tokens = parse_into_tokens("let flag: bool = false").unwrap();
         let mut compiler = Compiler::new();
-        compiler.compile_expr(&Parser::new(tokens).parse()).unwrap();
+        compiler.compile_expr(&Parser::new(tokens).parse().unwrap()).unwrap();
 
         let tokens = parse_into_tokens("flag = true").unwrap();
-        let (tmp, ty, instrs) = compiler.compile_expr(&Parser::new(tokens).parse()).unwrap();
+        let (tmp, ty, instrs) = compiler.compile_expr(&Parser::new(tokens).parse().unwrap()).unwrap();
         assert_eq!(ty, ResType::Bool);
         assert!(instrs.iter().any(|i| i.contains("storew") && i.contains(&tmp)));
     }
@@ -735,7 +736,7 @@ mod tests {
     fn assign_undeclared_errors() {
         let tokens = parse_into_tokens("x = 42").unwrap();
         let mut compiler = Compiler::new();
-        let result = compiler.compile_expr(&Parser::new(tokens).parse());
+        let result = compiler.compile_expr(&Parser::new(tokens).parse().unwrap());
         assert!(result.is_err());
     }
 
@@ -743,14 +744,14 @@ mod tests {
     fn variable_read_number() {
         let tokens = crate::lexer::parse_into_tokens("let x: num = 5").unwrap();
         let mut parser = crate::parser::Parser::new(tokens);
-        let assign = parser.parse();
+        let assign = parser.parse().unwrap();
         let mut compiler = Compiler::new();
         compiler.compile_expr(&assign).unwrap();
 
         // now read x
         let tokens = crate::lexer::parse_into_tokens("x").unwrap();
         let mut parser = crate::parser::Parser::new(tokens);
-        let var = parser.parse();
+        let var = parser.parse().unwrap();
         let (tmp, ty, instrs) = compiler.compile_expr(&var).unwrap();
         assert_eq!(ty, ResType::Number);
         assert_eq!(instrs.len(), 1);
@@ -851,13 +852,13 @@ mod tests {
     fn let_variable_readable() {
         let tokens = parse_into_tokens("let x: num = 10").unwrap();
         let mut parser = Parser::new(tokens);
-        let let_expr = parser.parse();
+        let let_expr = parser.parse().unwrap();
         let mut compiler = Compiler::new();
         compiler.compile_expr(&let_expr).unwrap();
 
         let tokens = parse_into_tokens("x").unwrap();
         let mut parser = Parser::new(tokens);
-        let var = parser.parse();
+        let var = parser.parse().unwrap();
         let (tmp, ty, instrs) = compiler.compile_expr(&var).unwrap();
         assert_eq!(ty, ResType::Number);
         assert!(instrs[0].contains("loadd") && instrs[0].starts_with(&tmp));
@@ -866,7 +867,7 @@ mod tests {
     fn compile_program(source: &str) -> Vec<String> {
         let tokens = parse_into_tokens(source).unwrap();
         let mut parser = Parser::new(tokens);
-        let exprs = parser.parse_program();
+        let exprs = parser.parse_program().unwrap();
         let mut compiler = Compiler::new();
         compiler.compile(exprs).unwrap()
     }

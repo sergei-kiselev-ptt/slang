@@ -56,10 +56,24 @@ pub enum TokenType {
     False,
 }
 
+#[derive(Debug, PartialEq, Clone, Copy, Default)]
+pub struct Span {
+    pub line: usize, // 1-based
+    pub col: usize,  // 1-based
+    pub len: usize,
+}
+
+impl std::fmt::Display for Span {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.line, self.col)
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct Token {
     pub token_type: TokenType,
     pub lexeme: String,
+    pub span: Span,
 }
 
 // #[derive(Debug, Clone)]
@@ -75,13 +89,34 @@ pub fn parse_into_tokens(input: &str) -> Result<Vec<Token>, Error> {
     let mut tokens = vec![];
 
     let mut start = 0;
+    let mut line = 1usize;
+    let mut col = 1usize;
 
     let chars = input.chars().collect::<Vec<char>>();
 
     while start < input.len() {
+        let token_line = line;
+        let token_col = col;
         let (token, next) = scan_next_token(&chars, start)?;
-        if token.is_some() {
-            tokens.push(token.unwrap());
+        let len = next - start;
+
+        // Update line/col tracking
+        for &ch in &chars[start..next] {
+            if ch == '\n' {
+                line += 1;
+                col = 1;
+            } else {
+                col += 1;
+            }
+        }
+
+        if let Some(mut tok) = token {
+            tok.span = Span {
+                line: token_line,
+                col: token_col,
+                len,
+            };
+            tokens.push(tok);
         }
         start = next;
     }
@@ -93,10 +128,7 @@ fn scan_next_token(input: &Vec<char>, current: usize) -> Result<(Option<Token>, 
     match input[current] {
         ' ' | '\t' | '\r' => Ok((None, current + 1)),
         '\n' => Ok((
-            Some(Token {
-                token_type: TokenType::Newline,
-                lexeme: "\n".to_string(),
-            }),
+            Some(tok(TokenType::Newline, "\n")),
             current + 1,
         )),
         ':' => Ok((Some(colon()), current + 1)),
@@ -159,30 +191,16 @@ fn scan_next_token(input: &Vec<char>, current: usize) -> Result<(Option<Token>, 
             Ok((Some(less()), current + 1))
         }
         '|' => {
-            if current + 1 == input.len() {
-                panic!("Pipe operator is not supported yet");
-                // return Ok((Some(pipe()), current + 1));
-            }
-
-            if input[current + 1] == '|' {
+            if current + 1 < input.len() && input[current + 1] == '|' {
                 return Ok((Some(logical_or()), current + 2));
             }
-
-            panic!("Pipe operator is not supported yet");
-            // Ok((Some(pipe()), current + 1))
+            return Err(Error::new(ErrorKind::Other, "single '|' operator is not supported"));
         }
         '&' => {
-            if current + 1 == input.len() {
-                panic!("Sinlge & operator is not supported yet");
-                // return Ok((Some(ampersand()), current + 1));
-            }
-
-            if input[current + 1] == '&' {
+            if current + 1 < input.len() && input[current + 1] == '&' {
                 return Ok((Some(logical_and()), current + 2));
             }
-
-            panic!("Single & operator is not supported yet");
-            // Ok((Some(ampersand()), current + 1))
+            return Err(Error::new(ErrorKind::Other, "single '&' operator is not supported"));
         }
         other => {
             if let (Some(keyword), current) = scan_keyword(input, current) {
@@ -220,208 +238,43 @@ fn log_lexer_error(input: &Vec<char>, current: usize, other: char) {
     );
 }
 
-fn plus() -> Token {
+fn tok(token_type: TokenType, lexeme: &str) -> Token {
     Token {
-        token_type: TokenType::Plus,
-        lexeme: "+".to_string(),
+        token_type,
+        lexeme: lexeme.to_string(),
+        span: Span::default(),
     }
 }
 
-fn star() -> Token {
-    Token {
-        token_type: TokenType::Star,
-        lexeme: "*".to_string(),
-    }
-}
-
-fn slash() -> Token {
-    Token {
-        token_type: TokenType::Slash,
-        lexeme: "/".to_string(),
-    }
-}
-
-fn left_paren() -> Token {
-    Token {
-        token_type: TokenType::LeftParen,
-        lexeme: "(".to_string(),
-    }
-}
-
-fn right_paren() -> Token {
-    Token {
-        token_type: TokenType::RightParen,
-        lexeme: ")".to_string(),
-    }
-}
-
-fn left_brace() -> Token {
-    Token {
-        token_type: TokenType::LeftBrace,
-        lexeme: "{".to_string(),
-    }
-}
-
-fn right_brace() -> Token {
-    Token {
-        token_type: TokenType::RightBrace,
-        lexeme: "}".to_string(),
-    }
-}
-
-fn if_kw() -> Token {
-    Token {
-        token_type: TokenType::If,
-        lexeme: "if".to_string(),
-    }
-}
-
-fn else_kw() -> Token {
-    Token {
-        token_type: TokenType::Else,
-        lexeme: "else".to_string(),
-    }
-}
-
-fn while_kw() -> Token {
-    Token {
-        token_type: TokenType::While,
-        lexeme: "while".to_string(),
-    }
-}
-
-fn print_kw() -> Token {
-    Token {
-        token_type: TokenType::Print,
-        lexeme: "print".to_string(),
-    }
-}
-
-fn func_kw() -> Token {
-    Token {
-        token_type: TokenType::Func,
-        lexeme: "func".to_string(),
-    }
-}
-
-fn return_kw() -> Token {
-    Token {
-        token_type: TokenType::Return,
-        lexeme: "return".to_string(),
-    }
-}
-
-fn let_kw() -> Token {
-    Token {
-        token_type: TokenType::Let,
-        lexeme: "let".to_string(),
-    }
-}
-
-fn num_type_kw() -> Token {
-    Token {
-        token_type: TokenType::NumType,
-        lexeme: "num".to_string(),
-    }
-}
-
-fn bool_type_kw() -> Token {
-    Token {
-        token_type: TokenType::BoolType,
-        lexeme: "bool".to_string(),
-    }
-}
-
-fn arrow() -> Token {
-    Token {
-        token_type: TokenType::Arrow,
-        lexeme: "->".to_string(),
-    }
-}
-
-fn colon() -> Token {
-    Token {
-        token_type: TokenType::Colon,
-        lexeme: ":".to_string(),
-    }
-}
-
-fn comma() -> Token {
-    Token {
-        token_type: TokenType::Comma,
-        lexeme: ",".to_string(),
-    }
-}
-
-fn equal() -> Token {
-    Token {
-        token_type: TokenType::Equal,
-        lexeme: "=".to_string(),
-    }
-}
-
-fn equal_equal() -> Token {
-    Token {
-        token_type: TokenType::EqualEqual,
-        lexeme: "==".to_string(),
-    }
-}
-
-fn bang() -> Token {
-    Token {
-        token_type: TokenType::Bang,
-        lexeme: "!".to_string(),
-    }
-}
-
-fn bang_equal() -> Token {
-    Token {
-        token_type: TokenType::BangEqual,
-        lexeme: "!=".to_string(),
-    }
-}
-
-fn logical_and() -> Token {
-    Token {
-        token_type: TokenType::LogicalAnd,
-        lexeme: "&&".to_string(),
-    }
-}
-
-fn logical_or() -> Token {
-    Token {
-        token_type: TokenType::LogicalOr,
-        lexeme: "||".to_string(),
-    }
-}
-
-fn greater() -> Token {
-    Token {
-        token_type: TokenType::Greater,
-        lexeme: ">".to_string(),
-    }
-}
-
-fn greater_equal() -> Token {
-    Token {
-        token_type: TokenType::GreaterEqual,
-        lexeme: ">=".to_string(),
-    }
-}
-
-fn less() -> Token {
-    Token {
-        token_type: TokenType::Less,
-        lexeme: "<".to_string(),
-    }
-}
-
-fn less_equal() -> Token {
-    Token {
-        token_type: TokenType::LessEqual,
-        lexeme: "<=".to_string(),
-    }
-}
+fn plus() -> Token { tok(TokenType::Plus, "+") }
+fn star() -> Token { tok(TokenType::Star, "*") }
+fn slash() -> Token { tok(TokenType::Slash, "/") }
+fn left_paren() -> Token { tok(TokenType::LeftParen, "(") }
+fn right_paren() -> Token { tok(TokenType::RightParen, ")") }
+fn left_brace() -> Token { tok(TokenType::LeftBrace, "{") }
+fn right_brace() -> Token { tok(TokenType::RightBrace, "}") }
+fn if_kw() -> Token { tok(TokenType::If, "if") }
+fn else_kw() -> Token { tok(TokenType::Else, "else") }
+fn while_kw() -> Token { tok(TokenType::While, "while") }
+fn print_kw() -> Token { tok(TokenType::Print, "print") }
+fn func_kw() -> Token { tok(TokenType::Func, "func") }
+fn return_kw() -> Token { tok(TokenType::Return, "return") }
+fn let_kw() -> Token { tok(TokenType::Let, "let") }
+fn num_type_kw() -> Token { tok(TokenType::NumType, "num") }
+fn bool_type_kw() -> Token { tok(TokenType::BoolType, "bool") }
+fn arrow() -> Token { tok(TokenType::Arrow, "->") }
+fn colon() -> Token { tok(TokenType::Colon, ":") }
+fn comma() -> Token { tok(TokenType::Comma, ",") }
+fn equal() -> Token { tok(TokenType::Equal, "=") }
+fn equal_equal() -> Token { tok(TokenType::EqualEqual, "==") }
+fn bang() -> Token { tok(TokenType::Bang, "!") }
+fn bang_equal() -> Token { tok(TokenType::BangEqual, "!=") }
+fn logical_and() -> Token { tok(TokenType::LogicalAnd, "&&") }
+fn logical_or() -> Token { tok(TokenType::LogicalOr, "||") }
+fn greater() -> Token { tok(TokenType::Greater, ">") }
+fn greater_equal() -> Token { tok(TokenType::GreaterEqual, ">=") }
+fn less() -> Token { tok(TokenType::Less, "<") }
+fn less_equal() -> Token { tok(TokenType::LessEqual, "<=") }
 
 fn is_valid_identifier_character(char: char) -> bool {
     char.is_alphabetic() || char.is_numeric() || char == '_'
@@ -584,24 +437,15 @@ fn scan_number(input: &[char], start: usize) -> (Option<Token>, usize) {
     (Some(number(acc)), current)
 }
 
-fn true_l() -> Token {
-    Token {
-        token_type: TokenType::True,
-        lexeme: "true".to_string(),
-    }
-}
-
-fn false_l() -> Token {
-    Token {
-        token_type: TokenType::False,
-        lexeme: "false".to_string(),
-    }
-}
+fn true_l() -> Token { tok(TokenType::True, "true") }
+fn false_l() -> Token { tok(TokenType::False, "false") }
+fn minus() -> Token { tok(TokenType::Minus, "-") }
 
 fn number(acc: String) -> Token {
     Token {
         token_type: TokenType::Number,
         lexeme: acc,
+        span: Span::default(),
     }
 }
 
@@ -609,13 +453,7 @@ fn identifier(acc: String) -> Token {
     Token {
         token_type: TokenType::Identifier,
         lexeme: acc,
-    }
-}
-
-fn minus() -> Token {
-    Token {
-        token_type: TokenType::Minus,
-        lexeme: "-".to_string(),
+        span: Span::default(),
     }
 }
 
