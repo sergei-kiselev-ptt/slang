@@ -118,8 +118,14 @@ impl Compiler {
                 "  {}",
                 param_ty.store_instr(&format!("%p_{}", param_name), &slot)
             ));
-            self.vars
-                .insert(param_name.clone(), (slot, param_ty.clone()));
+            self.vars.insert(
+                param_name.clone(),
+                VarMeta {
+                    slot,
+                    ty: param_ty.clone(),
+                    mutable: false,
+                },
+            );
         }
 
         let (_, _, body_instrs) = self.compile_block(body)?;
@@ -266,7 +272,8 @@ impl Compiler {
                 name,
                 type_ann,
                 value,
-            } => self.compile_let(name, type_ann, value),
+                mutable,
+            } => self.compile_let(name, type_ann, value, *mutable),
         }
     }
 
@@ -332,8 +339,8 @@ impl Compiler {
             None => {
                 Err(QbeError::new(format!("undefined variable '{}'", var_name), name.span).into())
             }
-            Some((slot, ty)) => {
-                let (slot, ty) = (slot.clone(), ty.clone());
+            Some(meta) => {
+                let (slot, ty) = (meta.slot.clone(), meta.ty.clone());
                 let tmp = self.next_tmp();
                 Ok((tmp.clone(), ty.clone(), vec![ty.load_instr(&tmp, &slot)]))
             }
@@ -348,7 +355,17 @@ impl Compiler {
         let var_name = name.lexeme.clone();
         let (val_tmp, ty, mut instructions) = self.compile_expr(value)?;
         let slot = match self.vars.get(&var_name) {
-            Some((slot, _)) => slot.clone(),
+            Some(meta) if meta.mutable => meta.slot.clone(),
+            Some(_) => {
+                return Err(QbeError::new(
+                    format!(
+                        "cannot assign to immutable variable '{}'; consider using 'let mut'",
+                        var_name
+                    ),
+                    name.span,
+                )
+                .into());
+            }
             None => {
                 return Err(QbeError::new(
                     format!(
@@ -369,14 +386,21 @@ impl Compiler {
         name: &crate::lexer::Token,
         type_ann: &crate::parser::TypeAnnotation,
         value: &Box<Expr>,
+        mutable: bool,
     ) -> Result<(String, ResType, Vec<String>)> {
         let declared_ty = res_type_from_annotation(type_ann);
         let (val_tmp, _, mut instructions) = self.compile_expr(value)?;
         let slot = self.next_tmp();
         instructions.push(declared_ty.alloc_instr(&slot));
         instructions.push(declared_ty.store_instr(&val_tmp, &slot));
-        self.vars
-            .insert(name.lexeme.clone(), (slot, declared_ty.clone()));
+        self.vars.insert(
+            name.lexeme.clone(),
+            VarMeta {
+                slot,
+                ty: declared_ty.clone(),
+                mutable: mutable,
+            },
+        );
         Ok((val_tmp, declared_ty, instructions))
     }
 
@@ -662,9 +686,15 @@ struct FuncSig {
     return_type: ResType,
 }
 
+struct VarMeta {
+    slot: String,
+    ty: ResType,
+    mutable: bool,
+}
+
 pub struct Compiler {
     counter: usize,
-    vars: HashMap<String, (String, ResType)>, // name -> (stack_slot_tmp, type)
+    vars: HashMap<String, VarMeta>,
     functions: HashMap<String, FuncSig>,
 }
 
@@ -775,7 +805,7 @@ mod tests {
 
     #[test]
     fn assign_number() {
-        let tokens = parse_into_tokens("let x: num = 0").unwrap();
+        let tokens = parse_into_tokens("let mut x: num = 0").unwrap();
         let mut compiler = Compiler::new();
         compiler
             .compile_expr(&Parser::new(tokens).parse().unwrap())
@@ -791,7 +821,7 @@ mod tests {
 
     #[test]
     fn assign_bool() {
-        let tokens = parse_into_tokens("let flag: bool = false").unwrap();
+        let tokens = parse_into_tokens("let mut flag: bool = false").unwrap();
         let mut compiler = Compiler::new();
         compiler
             .compile_expr(&Parser::new(tokens).parse().unwrap())
@@ -811,6 +841,21 @@ mod tests {
         let mut compiler = Compiler::new();
         let result = compiler.compile_expr(&Parser::new(tokens).parse().unwrap());
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn assign_immutable_errors() {
+        let tokens = parse_into_tokens("let x: num = 0").unwrap();
+        let mut compiler = Compiler::new();
+        compiler
+            .compile_expr(&Parser::new(tokens).parse().unwrap())
+            .unwrap();
+
+        let tokens = parse_into_tokens("x = 42").unwrap();
+        let result = compiler.compile_expr(&Parser::new(tokens).parse().unwrap());
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("immutable") && msg.contains("let mut"));
     }
 
     #[test]

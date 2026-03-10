@@ -9,9 +9,9 @@ func fib_dyn(n: num) -> num {
     if n <= 1 {
         return n
     }
-    let a: num = 0
-    let b: num = 1
-    let iter: num = 1
+    let mut a: num = 0
+    let mut b: num = 1
+    let mut iter: num = 1
     while iter < n {
         let c: num = b
         b = a + b
@@ -26,7 +26,7 @@ func fib_dyn(n: num) -> num {
 
 let x: num = 1
 
-if x == true {
+if x == 1 {
     print 1
     x + 2
 } else {

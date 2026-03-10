@@ -39,7 +39,7 @@ Source Code
 ### Implemented
 - **Lexer**: Full tokenization with comprehensive tests; `Span` (line, col, len) on every token
 - **Parser**: Recursive descent parser producing AST; newlines as statement separators (insignificant inside expressions); returns `Result<_, ParseError>` with source spans — no panics
-- **AST**: `Literal`, `Unary`, `Binary`, `Variable`, `Assign`, `Let`, `If`, `While`, `Print`, `FuncDef`, `Call`; each node carries or delegates a `Span`
+- **AST**: `Literal`, `Unary`, `Binary`, `Variable`, `Assign`, `Let` (with `mutable` flag), `If`, `While`, `Print`, `FuncDef`, `Call`; each node carries or delegates a `Span`
 - **QBE Compiler**: Compiles to QBE IR, produces native binaries; type-checked (`ResType::Number | Bool | Void`); errors include source location
 - **Error reporting**: Parse and compile errors display file, line:col, source line snippet, and caret underline
 
@@ -64,7 +64,7 @@ Source Code
                 | "if" <expression> "{" <expression> "}" ( "else" "{" <expression> "}" )?
                 | "while" <expression> "{" <expression>* "}"
                 | "print" <expression>
-                | "let" <IDENTIFIER> ":" <type> "=" <expression>
+                | "let" "mut"? <IDENTIFIER> ":" <type> "=" <expression>
                 | <IDENTIFIER> "(" <args>? ")"
 <args>        ::= <expression> ( "," <expression> )*
 ```
@@ -74,8 +74,8 @@ Source Code
 - Comparison: `>`, `>=`, `<`, `<=`
 - Equality: `==`, `!=`
 - Logical: `&&`, `||`, `!`
-- Declaration: `let x: type = expr` (declares and initializes; shadows if name already exists)
-- Assignment: `=` (reassigns a declared variable; error if undeclared; returns `Void` — not usable as expression)
+- Declaration: `let x: type = expr` (immutable); `let mut x: type = expr` (mutable); shadows if name already exists
+- Assignment: `=` (reassigns a declared mutable variable; error if undeclared or immutable; returns `Void` — not usable as expression)
 - Grouping: `()`
 - Control flow: `if`/`else` (condition must be `bool`), `while` (condition must be `bool`)
 - Output: `print` (prints value, returns it)
@@ -137,7 +137,7 @@ cargo run ./examples/main.sl && qbe -o .build/out.s .build/main.qbe && cc .build
 | # | Feature | Notes |
 |---|---------|-------|
 | 1 | ~~Error reporting~~ | Done — spans, no panics, source snippets |
-| 2 | Immutability (`let` vs `let mut`) | `let` immutable by default; `let mut` for mutable |
+| 2 | ~~Immutability (`let` vs `let mut`)~~ | Done — `let` immutable by default; `let mut` for mutable |
 | 3 | `for` loop + `break`/`continue` | Range-based: `for i in 0..n { }` |
 | 4 | Modulo `%` + compound assignment (`+=` etc.) | Small additions |
 | 5 | Integer type `int` (i64) | `42` → int, `42.0` → num (dot distinguishes) |

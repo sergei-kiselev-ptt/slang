@@ -75,6 +75,7 @@ pub enum Expr {
         name: Token,
         type_ann: TypeAnnotation,
         value: Box<Expr>,
+        mutable: bool,
     },
 }
 
@@ -382,6 +383,7 @@ impl Parser {
         }
 
         if self.match_token(&[TokenType::Let]) {
+            let mutable = self.match_token(&[TokenType::Mut]);
             self.expect(TokenType::Identifier, "expected variable name after 'let'")?;
             let name = self.previous().clone();
             self.expect(
@@ -395,6 +397,7 @@ impl Parser {
                 name,
                 type_ann,
                 value: Box::new(value),
+                mutable,
             });
         }
 
@@ -536,7 +539,10 @@ impl Expr {
             } => format!("({} {} {})", operator.lexeme, left.as_str(), right.as_str()),
             Expr::Variable { name } => name.lexeme.clone(),
             Expr::Assign { name, value } => format!("({} {} {})", "=", name.lexeme, value.as_str()),
-            Expr::Let { name, value, .. } => format!("(let {} = {})", name.lexeme, value.as_str()),
+            Expr::Let { name, value, mutable, .. } => {
+                let kw = if *mutable { "let mut" } else { "let" };
+                format!("({} {} = {})", kw, name.lexeme, value.as_str())
+            }
             Expr::While { condition, body } => format!(
                 "(while {} {{ {} }})",
                 condition.as_str(),
