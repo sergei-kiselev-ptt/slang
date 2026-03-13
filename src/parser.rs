@@ -6,6 +6,7 @@ use crate::lexer::*;
 pub enum TypeAnnotation {
     Num,
     Bool,
+    Int,
 }
 
 #[derive(Debug)]
@@ -82,6 +83,7 @@ pub enum Expr {
 #[derive(Debug, Clone)]
 pub enum LiteralValue {
     Number(f64),
+    Int(i64),
     String(String),
     Bool(bool),
 }
@@ -179,9 +181,11 @@ impl Parser {
             Ok(TypeAnnotation::Num)
         } else if self.match_token(&[TokenType::BoolType]) {
             Ok(TypeAnnotation::Bool)
+        } else if self.match_token(&[TokenType::IntType]) {
+            Ok(TypeAnnotation::Int)
         } else {
             Err(self.error(format!(
-                "expected type ('num' or 'bool'), found '{}'",
+                "expected type ('num', 'int', or 'bool'), found '{}'",
                 if self.is_at_end() {
                     "end of input"
                 } else {
@@ -346,12 +350,20 @@ impl Parser {
             return Err(self.error("unexpected end of input"));
         }
 
+        if self.match_token(&[TokenType::Integer]) {
+            let span = self.previous().span;
+            if let Ok(parsed) = self.previous().clone().lexeme.parse::<i64>() {
+                return Ok(Expr::Literal(LiteralValue::Int(parsed), span));
+            }
+            return Err(self.error("invalid integer literal"));
+        }
+
         if self.match_token(&[TokenType::Number]) {
             let span = self.previous().span;
-            if let Ok(parsed) = self.previous().clone().lexeme.parse() {
+            if let Ok(parsed) = self.previous().clone().lexeme.parse::<f64>() {
                 return Ok(Expr::Literal(LiteralValue::Number(parsed), span));
             }
-            return Err(self.error("invalid number literal"));
+            return Err(self.error("invalid float literal"));
         }
 
         if self.match_token(&[TokenType::LeftParen]) {
@@ -528,6 +540,7 @@ impl Expr {
         match self {
             Expr::Literal(val, _) => match val {
                 LiteralValue::Number(n) => n.to_string(),
+                LiteralValue::Int(n) => n.to_string(),
                 LiteralValue::String(s) => s.clone(),
                 LiteralValue::Bool(b) => b.to_string(),
             },
@@ -539,7 +552,12 @@ impl Expr {
             } => format!("({} {} {})", operator.lexeme, left.as_str(), right.as_str()),
             Expr::Variable { name } => name.lexeme.clone(),
             Expr::Assign { name, value } => format!("({} {} {})", "=", name.lexeme, value.as_str()),
-            Expr::Let { name, value, mutable, .. } => {
+            Expr::Let {
+                name,
+                value,
+                mutable,
+                ..
+            } => {
                 let kw = if *mutable { "let mut" } else { "let" };
                 format!("({} {} = {})", kw, name.lexeme, value.as_str())
             }

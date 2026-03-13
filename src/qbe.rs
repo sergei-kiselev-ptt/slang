@@ -63,6 +63,7 @@ impl Compiler {
         out.push("  ret 0".to_string());
         out.push("}".to_string());
         out.push("data $fmt_print_d = { b \"%g\\n\", b 0 }".to_string());
+        out.push("data $fmt_print_i = { b \"%lld\\n\", b 0 }".to_string());
         out.push("data $str_true_nl = { b \"true\\n\", b 0 }".to_string());
         out.push("data $str_false_nl = { b \"false\\n\", b 0 }".to_string());
         Ok(out)
@@ -168,6 +169,7 @@ impl Compiler {
         op: &TokenType,
         l: &str,
         r: &str,
+        ty: &ResType,
     ) -> Result<(String, ResType, String)> {
         let opcode = match op {
             TokenType::Plus => "add",
@@ -181,10 +183,11 @@ impl Compiler {
             }
         };
         let tmp = self.next_tmp();
+        let qbe_ty = ty.qbe_abi_type();
         Ok((
             tmp.clone(),
-            ResType::Number,
-            format!("{} =d {} {}, {}", tmp, opcode, l, r),
+            ty.clone(),
+            format!("{} ={} {} {}, {}", tmp, qbe_ty, opcode, l, r),
         ))
     }
 
@@ -195,26 +198,25 @@ impl Compiler {
         r: &str,
         l_type: &ResType,
     ) -> Result<(String, ResType, String)> {
-        let opcode = match (op, l_type) {
-            (TokenType::EqualEqual, ResType::Number) => "ceqd",
-            (TokenType::EqualEqual, ResType::Bool) => "ceqw",
-            (TokenType::BangEqual, ResType::Number) => "cned",
-            (TokenType::BangEqual, ResType::Bool) => "cnew",
-            (TokenType::Greater, _) => "cgtd",
-            (TokenType::GreaterEqual, _) => "cged",
-            (TokenType::Less, _) => "cltd",
-            (TokenType::LessEqual, _) => "cled",
+        let opcode = match l_type {
+            ResType::Number => float_comp_op_code(*op),
+            ResType::Int => int_comp_op_code(*op),
+            ResType::Bool => bool_comp_op_code(*op),
             _ => {
                 return Err(
                     QbeError::no_span(format!("{:?} is not a comparison operator", op)).into(),
                 );
             }
         };
+        if opcode.is_err() {
+            return Err(opcode.err().unwrap());
+        }
+
         let tmp = self.next_tmp();
         Ok((
             tmp.clone(),
             ResType::Bool,
-            format!("{} =w {} {}, {}", tmp, opcode, l, r),
+            format!("{} =w {} {}, {}", tmp, opcode.unwrap(), l, r),
         ))
     }
 
@@ -287,6 +289,11 @@ impl Compiler {
                 tmp.clone(),
                 ResType::Number,
                 vec![format!("{} =d copy d_{}", tmp, n)],
+            )),
+            LiteralValue::Int(n) => Ok((
+                tmp.clone(),
+                ResType::Int,
+                vec![format!("{} =l copy {}", tmp, n)],
             )),
             LiteralValue::Bool(b) => {
                 let val = if *b { 1 } else { 0 };
@@ -389,7 +396,17 @@ impl Compiler {
         mutable: bool,
     ) -> Result<(String, ResType, Vec<String>)> {
         let declared_ty = res_type_from_annotation(type_ann);
-        let (val_tmp, _, mut instructions) = self.compile_expr(value)?;
+        let (val_tmp, val_ty, mut instructions) = self.compile_expr(value)?;
+        if val_ty != declared_ty {
+            return Err(QbeError::new(
+                format!(
+                    "type mismatch in 'let': declared {:?} but value is {:?}",
+                    declared_ty, val_ty
+                ),
+                name.span,
+            )
+            .into());
+        }
         let slot = self.next_tmp();
         instructions.push(declared_ty.alloc_instr(&slot));
         instructions.push(declared_ty.store_instr(&val_tmp, &slot));
@@ -567,6 +584,9 @@ impl Compiler {
             ResType::Number => {
                 instructions.push(format!("call $printf(l $fmt_print_d, ..., d {})", val_tmp));
             }
+            ResType::Int => {
+                instructions.push(format!("call $printf(l $fmt_print_i, ..., l {})", val_tmp));
+            }
             ResType::Bool => {
                 let id = self.counter;
                 let _ = self.next_tmp(); // reserve id
@@ -608,7 +628,7 @@ impl Compiler {
         use TokenType::*;
         let (tmp, res_type, instr) = match operator.token_type {
             Plus | Minus | Star | Slash => {
-                self.emit_arithmetic(&operator.token_type, &l_tmp, &r_tmp)?
+                self.emit_arithmetic(&operator.token_type, &l_tmp, &r_tmp, &l_type)?
             }
             EqualEqual | BangEqual | Greater | GreaterEqual | Less | LessEqual => {
                 self.emit_comparison(&operator.token_type, &l_tmp, &r_tmp, &l_type)?
@@ -627,6 +647,52 @@ impl Compiler {
     }
 }
 
+fn float_comp_op_code(op: TokenType) -> Result<String> {
+    match op {
+        TokenType::EqualEqual => Ok("ceqd".to_string()),
+        TokenType::BangEqual => Ok("cned".to_string()),
+        TokenType::Greater => Ok("cgtd".to_string()),
+        TokenType::GreaterEqual => Ok("cged".to_string()),
+        TokenType::Less => Ok("cltd".to_string()),
+        TokenType::LessEqual => Ok("cled".to_string()),
+        _ => {
+            return Err(QbeError::no_span(format!(
+                "{:?} is not a valid float comparison operator",
+                op
+            ))
+            .into());
+        }
+    }
+}
+
+fn int_comp_op_code(op: TokenType) -> Result<String> {
+    match op {
+        TokenType::EqualEqual => Ok("ceql".to_string()),
+        TokenType::BangEqual => Ok("cnel".to_string()),
+        TokenType::Greater => Ok("csgtl".to_string()),
+        TokenType::GreaterEqual => Ok("csgel".to_string()),
+        TokenType::Less => Ok("csltl".to_string()),
+        TokenType::LessEqual => Ok("cslel".to_string()),
+        _ => Err(QbeError::no_span(format!(
+            "{:?} is not a valid comparison operator for int type",
+            op
+        ))
+        .into()),
+    }
+}
+
+fn bool_comp_op_code(op: TokenType) -> Result<String> {
+    match op {
+        TokenType::EqualEqual => Ok("ceqw".to_string()),
+        TokenType::BangEqual => Ok("cnew".to_string()),
+        _ => Err(QbeError::no_span(format!(
+            "{:?} is not a valid comparison operator for bool type",
+            op
+        ))
+        .into()),
+    }
+}
+
 fn last_is_terminator(instrs: &[String]) -> bool {
     instrs
         .iter()
@@ -642,6 +708,7 @@ fn last_is_terminator(instrs: &[String]) -> bool {
 fn res_type_from_annotation(ann: &TypeAnnotation) -> ResType {
     match ann {
         TypeAnnotation::Num => ResType::Number,
+        TypeAnnotation::Int => ResType::Int,
         TypeAnnotation::Bool => ResType::Bool,
     }
 }
@@ -700,15 +767,17 @@ pub struct Compiler {
 
 #[derive(Debug, PartialEq, Clone)]
 enum ResType {
-    Number, // QBE type 'd' (double)
-    Bool,   // QBE type 'w' (word)
-    Void,   // assignment / statement — has no runtime value
+    Number, // QBE type 'd' (double, f64)
+    Int,    // QBE type 'l' (long, i64)
+    Bool,   // QBE type 'w' (word, i32)
+    Void,
 }
 
 impl ResType {
     fn alloc_instr(&self, slot: &str) -> String {
         match self {
             ResType::Number => format!("{} =l alloc8 8", slot),
+            ResType::Int => format!("{} =l alloc8 8", slot),
             ResType::Bool => format!("{} =l alloc4 4", slot),
             ResType::Void => panic!("cannot alloc Void"),
         }
@@ -717,6 +786,7 @@ impl ResType {
     fn store_instr(&self, val: &str, slot: &str) -> String {
         match self {
             ResType::Number => format!("stored {}, {}", val, slot),
+            ResType::Int => format!("storel {}, {}", val, slot),
             ResType::Bool => format!("storew {}, {}", val, slot),
             ResType::Void => panic!("cannot store Void"),
         }
@@ -725,6 +795,7 @@ impl ResType {
     fn load_instr(&self, tmp: &str, slot: &str) -> String {
         match self {
             ResType::Number => format!("{} =d loadd {}", tmp, slot),
+            ResType::Int => format!("{} =l loadl {}", tmp, slot),
             ResType::Bool => format!("{} =w loadsw {}", tmp, slot),
             ResType::Void => panic!("cannot load Void"),
         }
@@ -733,6 +804,7 @@ impl ResType {
     fn init_default_instr(&self, tmp: &str) -> String {
         match self {
             ResType::Number => format!("{} =d copy d_0", tmp),
+            ResType::Int => format!("{} =l copy 0", tmp),
             ResType::Bool => format!("{} =w copy 0", tmp),
             ResType::Void => panic!("cannot init Void"),
         }
@@ -741,6 +813,7 @@ impl ResType {
     fn qbe_abi_type(&self) -> &str {
         match self {
             ResType::Number => "d",
+            ResType::Int => "l",
             ResType::Bool => "w",
             ResType::Void => panic!("Void has no QBE ABI type"),
         }
@@ -765,47 +838,66 @@ mod tests {
     fn comparison_equal() {
         let (tmp, ty, instrs) = compile_expr("1 == 2");
         assert_eq!(ty, ResType::Bool);
-        assert_eq!(instrs.last().unwrap(), &format!("{} =w ceqd %t0, %t1", tmp));
+        assert_eq!(instrs.last().unwrap(), &format!("{} =w ceql %t0, %t1", tmp));
     }
 
     #[test]
     fn comparison_not_equal() {
         let (tmp, ty, instrs) = compile_expr("1 != 2");
         assert_eq!(ty, ResType::Bool);
-        assert_eq!(instrs.last().unwrap(), &format!("{} =w cned %t0, %t1", tmp));
+        assert_eq!(instrs.last().unwrap(), &format!("{} =w cnel %t0, %t1", tmp));
     }
 
     #[test]
     fn comparison_greater() {
         let (tmp, ty, instrs) = compile_expr("3 > 2");
         assert_eq!(ty, ResType::Bool);
-        assert_eq!(instrs.last().unwrap(), &format!("{} =w cgtd %t0, %t1", tmp));
+        assert_eq!(
+            instrs.last().unwrap(),
+            &format!("{} =w csgtl %t0, %t1", tmp)
+        );
     }
 
     #[test]
     fn comparison_greater_equal() {
         let (tmp, ty, instrs) = compile_expr("3 >= 3");
         assert_eq!(ty, ResType::Bool);
-        assert_eq!(instrs.last().unwrap(), &format!("{} =w cged %t0, %t1", tmp));
+        assert_eq!(
+            instrs.last().unwrap(),
+            &format!("{} =w csgel %t0, %t1", tmp)
+        );
     }
 
     #[test]
     fn comparison_less() {
         let (tmp, ty, instrs) = compile_expr("1 < 2");
         assert_eq!(ty, ResType::Bool);
-        assert_eq!(instrs.last().unwrap(), &format!("{} =w cltd %t0, %t1", tmp));
+        assert_eq!(
+            instrs.last().unwrap(),
+            &format!("{} =w csltl %t0, %t1", tmp)
+        );
     }
 
     #[test]
     fn comparison_less_equal() {
         let (tmp, ty, instrs) = compile_expr("2 <= 2");
         assert_eq!(ty, ResType::Bool);
-        assert_eq!(instrs.last().unwrap(), &format!("{} =w cled %t0, %t1", tmp));
+        assert_eq!(
+            instrs.last().unwrap(),
+            &format!("{} =w cslel %t0, %t1", tmp)
+        );
+    }
+
+    #[test]
+    fn comparison_equal_float() {
+        let (tmp, ty, instrs) = compile_expr("1.0 == 2.0");
+        assert_eq!(ty, ResType::Bool);
+        assert_eq!(instrs.last().unwrap(), &format!("{} =w ceqd %t0, %t1", tmp));
     }
 
     #[test]
     fn assign_number() {
-        let tokens = parse_into_tokens("let mut x: num = 0").unwrap();
+        let tokens = parse_into_tokens("let mut x: int = 0").unwrap();
         let mut compiler = Compiler::new();
         compiler
             .compile_expr(&Parser::new(tokens).parse().unwrap())
@@ -816,7 +908,7 @@ mod tests {
             .compile_expr(&Parser::new(tokens).parse().unwrap())
             .unwrap();
         assert_eq!(ty, ResType::Void);
-        assert!(instrs.iter().any(|i| i.contains("stored")));
+        assert!(instrs.iter().any(|i| i.contains("storel")));
     }
 
     #[test]
@@ -845,7 +937,7 @@ mod tests {
 
     #[test]
     fn assign_immutable_errors() {
-        let tokens = parse_into_tokens("let x: num = 0").unwrap();
+        let tokens = parse_into_tokens("let x: int = 0").unwrap();
         let mut compiler = Compiler::new();
         compiler
             .compile_expr(&Parser::new(tokens).parse().unwrap())
@@ -860,7 +952,7 @@ mod tests {
 
     #[test]
     fn variable_read_number() {
-        let tokens = crate::lexer::parse_into_tokens("let x: num = 5").unwrap();
+        let tokens = crate::lexer::parse_into_tokens("let x: int = 5").unwrap();
         let mut parser = crate::parser::Parser::new(tokens);
         let assign = parser.parse().unwrap();
         let mut compiler = Compiler::new();
@@ -871,9 +963,9 @@ mod tests {
         let mut parser = crate::parser::Parser::new(tokens);
         let var = parser.parse().unwrap();
         let (tmp, ty, instrs) = compiler.compile_expr(&var).unwrap();
-        assert_eq!(ty, ResType::Number);
+        assert_eq!(ty, ResType::Int);
         assert_eq!(instrs.len(), 1);
-        assert!(instrs[0].contains("loadd"));
+        assert!(instrs[0].contains("loadl"));
         assert!(instrs[0].starts_with(&tmp));
     }
 
@@ -908,26 +1000,26 @@ mod tests {
     #[test]
     fn if_with_else_number() {
         let (tmp, ty, instrs) = compile_expr("if true { 1 } else { 2 }");
-        assert_eq!(ty, ResType::Number);
+        assert_eq!(ty, ResType::Int);
         assert!(instrs.iter().any(|i| i.contains("jnz")));
         assert!(instrs.iter().any(|i| i.starts_with("@then_")));
         assert!(instrs.iter().any(|i| i.starts_with("@else_")));
         assert!(instrs.iter().any(|i| i.starts_with("@end_")));
         assert!(
-            instrs.last().unwrap().contains("loadd") && instrs.last().unwrap().starts_with(&tmp)
+            instrs.last().unwrap().contains("loadl") && instrs.last().unwrap().starts_with(&tmp)
         );
     }
 
     #[test]
     fn if_without_else_number() {
         let (tmp, ty, instrs) = compile_expr("if true { 42 }");
-        assert_eq!(ty, ResType::Number);
+        assert_eq!(ty, ResType::Int);
         assert!(instrs.iter().any(|i| i.contains("jnz")));
         assert!(instrs.iter().any(|i| i.starts_with("@then_")));
         assert!(!instrs.iter().any(|i| i.starts_with("@else_")));
-        assert!(instrs.iter().any(|i| i.contains("d_0"))); // default init
+        assert!(instrs.iter().any(|i| i.contains("copy 0"))); // default init
         assert!(
-            instrs.last().unwrap().contains("loadd") && instrs.last().unwrap().starts_with(&tmp)
+            instrs.last().unwrap().contains("loadl") && instrs.last().unwrap().starts_with(&tmp)
         );
     }
 
@@ -943,6 +1035,16 @@ mod tests {
     #[test]
     fn print_number() {
         let (tmp, ty, instrs) = compile_expr("print 42");
+        assert_eq!(ty, ResType::Int);
+        assert_eq!(
+            instrs.last().unwrap(),
+            &format!("call $printf(l $fmt_print_i, ..., l {})", tmp)
+        );
+    }
+
+    #[test]
+    fn print_float() {
+        let (tmp, ty, instrs) = compile_expr("print 3.14");
         assert_eq!(ty, ResType::Number);
         assert_eq!(
             instrs.last().unwrap(),
@@ -952,7 +1054,19 @@ mod tests {
 
     #[test]
     fn let_number() {
-        let (tmp, ty, instrs) = compile_expr("let x: num = 42");
+        let (tmp, ty, instrs) = compile_expr("let x: int = 42");
+        assert_eq!(ty, ResType::Int);
+        assert!(instrs.iter().any(|i| i.contains("alloc8")));
+        assert!(
+            instrs
+                .iter()
+                .any(|i| i.contains("storel") && i.contains(&tmp))
+        );
+    }
+
+    #[test]
+    fn let_float() {
+        let (tmp, ty, instrs) = compile_expr("let x: num = 3.14");
         assert_eq!(ty, ResType::Number);
         assert!(instrs.iter().any(|i| i.contains("alloc8")));
         assert!(
@@ -976,7 +1090,7 @@ mod tests {
 
     #[test]
     fn let_variable_readable() {
-        let tokens = parse_into_tokens("let x: num = 10").unwrap();
+        let tokens = parse_into_tokens("let x: int = 10").unwrap();
         let mut parser = Parser::new(tokens);
         let let_expr = parser.parse().unwrap();
         let mut compiler = Compiler::new();
@@ -986,8 +1100,8 @@ mod tests {
         let mut parser = Parser::new(tokens);
         let var = parser.parse().unwrap();
         let (tmp, ty, instrs) = compiler.compile_expr(&var).unwrap();
-        assert_eq!(ty, ResType::Number);
-        assert!(instrs[0].contains("loadd") && instrs[0].starts_with(&tmp));
+        assert_eq!(ty, ResType::Int);
+        assert!(instrs[0].contains("loadl") && instrs[0].starts_with(&tmp));
     }
 
     fn compile_program(source: &str) -> Vec<String> {

@@ -44,14 +44,16 @@ pub enum TokenType {
     // Type keywords
     NumType,
     BoolType,
+    IntType,
 
     // Punctuation
-    Arrow, // ->
-    Colon, // :
-    Comma, // ,
+    Arrow,
+    Colon,
+    Comma,
 
     // Literals
     Number,
+    Integer,
     Identifier,
     True,
     False,
@@ -101,7 +103,6 @@ pub fn parse_into_tokens(input: &str) -> Result<Vec<Token>, Error> {
         let (token, next) = scan_next_token(&chars, start)?;
         let len = next - start;
 
-        // Update line/col tracking
         for &ch in &chars[start..next] {
             if ch == '\n' {
                 line += 1;
@@ -301,6 +302,9 @@ fn num_type_kw() -> Token {
 fn bool_type_kw() -> Token {
     tok(TokenType::BoolType, "bool")
 }
+fn int_type_kw() -> Token {
+    tok(TokenType::IntType, "int")
+}
 fn arrow() -> Token {
     tok(TokenType::Arrow, "->")
 }
@@ -464,6 +468,13 @@ fn scan_keyword(input: &[char], start: usize) -> (Option<Token>, usize) {
         return (Some(mut_kw()), start + 3);
     }
 
+    if slice.len() >= 3
+        && slice.starts_with(&['i', 'n', 't'])
+        && (slice.len() == 3 || is_word_boundary(slice[3]))
+    {
+        return (Some(int_type_kw()), start + 3);
+    }
+
     (None, 0)
 }
 
@@ -496,17 +507,21 @@ fn scan_boolean_literal(input: &[char], start: usize) -> (Option<Token>, usize) 
 fn scan_number(input: &[char], start: usize) -> (Option<Token>, usize) {
     let mut current = start;
     let mut acc = String::with_capacity(16);
-    while current < input.len() {
-        if input[current].is_numeric() {
+    while current < input.len() && input[current].is_numeric() {
+        acc.push(input[current]);
+        current += 1;
+    }
+    // '.' followed by a digit (but not '..') means a float literal
+    if current + 1 < input.len() && input[current] == '.' && input[current + 1].is_numeric() {
+        acc.push('.');
+        current += 1;
+        while current < input.len() && input[current].is_numeric() {
             acc.push(input[current]);
             current += 1;
-            continue;
         }
-
-        break;
+        return (Some(number(acc)), current);
     }
-
-    (Some(number(acc)), current)
+    (Some(integer(acc)), current)
 }
 
 fn true_l() -> Token {
@@ -527,6 +542,14 @@ fn number(acc: String) -> Token {
     }
 }
 
+fn integer(acc: String) -> Token {
+    Token {
+        token_type: TokenType::Integer,
+        lexeme: acc,
+        span: Span::default(),
+    }
+}
+
 fn identifier(acc: String) -> Token {
     Token {
         token_type: TokenType::Identifier,
@@ -541,7 +564,7 @@ mod tests {
     use test_case::test_case;
 
     #[test]
-    fn scan_next_token_number() {
+    fn scan_next_token_integer() {
         let input = vec!['2', '3', '7'];
         let (_token, end) = super::scan_next_token(&input, 0).unwrap();
 
@@ -549,6 +572,18 @@ mod tests {
         let token = _token.unwrap();
         assert_eq!(end, 3);
         assert_eq!(token.lexeme, "237");
+        assert_eq!(token.token_type, TokenType::Integer);
+    }
+
+    #[test]
+    fn scan_next_token_float() {
+        let input = vec!['3', '.', '1', '4'];
+        let (_token, end) = super::scan_next_token(&input, 0).unwrap();
+
+        assert!(_token.is_some());
+        let token = _token.unwrap();
+        assert_eq!(end, 4);
+        assert_eq!(token.lexeme, "3.14");
         assert_eq!(token.token_type, TokenType::Number);
     }
 
@@ -800,23 +835,23 @@ mod tests {
 
         assert_eq!(tokens.len(), 9);
         assert_eq!(tokens[0].lexeme, "2");
-        assert_eq!(tokens[0].token_type, TokenType::Number);
+        assert_eq!(tokens[0].token_type, TokenType::Integer);
         assert_eq!(tokens[1].lexeme, "-");
         assert_eq!(tokens[1].token_type, TokenType::Minus);
         assert_eq!(tokens[2].lexeme, "1");
-        assert_eq!(tokens[2].token_type, TokenType::Number);
+        assert_eq!(tokens[2].token_type, TokenType::Integer);
         assert_eq!(tokens[3].lexeme, "+");
         assert_eq!(tokens[3].token_type, TokenType::Plus);
         assert_eq!(tokens[4].lexeme, "3");
-        assert_eq!(tokens[4].token_type, TokenType::Number);
+        assert_eq!(tokens[4].token_type, TokenType::Integer);
         assert_eq!(tokens[5].lexeme, "*");
         assert_eq!(tokens[5].token_type, TokenType::Star);
         assert_eq!(tokens[6].lexeme, "4");
-        assert_eq!(tokens[6].token_type, TokenType::Number);
+        assert_eq!(tokens[6].token_type, TokenType::Integer);
         assert_eq!(tokens[7].lexeme, "/");
         assert_eq!(tokens[7].token_type, TokenType::Slash);
         assert_eq!(tokens[8].lexeme, "5");
-        assert_eq!(tokens[8].token_type, TokenType::Number);
+        assert_eq!(tokens[8].token_type, TokenType::Integer);
     }
 
     #[test_case("2 -1")]
@@ -829,8 +864,8 @@ mod tests {
         let tokens = super::parse_into_tokens(input).unwrap();
 
         assert_eq!(tokens.len(), 3);
-        assert_eq!(tokens[0].token_type, TokenType::Number);
+        assert_eq!(tokens[0].token_type, TokenType::Integer);
         assert_eq!(tokens[1].token_type, TokenType::Minus);
-        assert_eq!(tokens[2].token_type, TokenType::Number);
+        assert_eq!(tokens[2].token_type, TokenType::Integer);
     }
 }

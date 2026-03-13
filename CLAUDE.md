@@ -40,6 +40,7 @@ Source Code
 - **Lexer**: Full tokenization with comprehensive tests; `Span` (line, col, len) on every token
 - **Parser**: Recursive descent parser producing AST; newlines as statement separators (insignificant inside expressions); returns `Result<_, ParseError>` with source spans — no panics
 - **AST**: `Literal`, `Unary`, `Binary`, `Variable`, `Assign`, `Let` (with `mutable` flag), `If`, `While`, `Print`, `FuncDef`, `Call`; each node carries or delegates a `Span`
+- **Types**: `int` (i64, QBE `l`), `num` (f64, QBE `d`), `bool` (i32, QBE `w`); literal `42` → `int`, `42.0` → `num`; type-checked at `let` declarations
 - **QBE Compiler**: Compiles to QBE IR, produces native binaries; type-checked (`ResType::Number | Bool | Void`); errors include source location
 - **Error reporting**: Parse and compile errors display file, line:col, source line snippet, and caret underline
 
@@ -49,7 +50,7 @@ Source Code
 <func_def>    ::= "func" <IDENTIFIER> "(" <params>? ")" "->" <type> "{" <expression>* "}"
 <params>      ::= <param> ( "," <param> )*
 <param>       ::= <IDENTIFIER> ":" <type>
-<type>        ::= "num" | "bool"
+<type>        ::= "num" | "int" | "bool"
 <expression>  ::= <assignment>
 <assignment>  ::= <IDENTIFIER> "=" <assignment> | <logical_or>
 <logical_or>  ::= <logical_and> ( "||" <logical_and> )*
@@ -82,7 +83,8 @@ Source Code
 - Functions: `func name(param: type) -> type { body }`, called as `name(arg)`
 
 ### Value Types
-- `Number(f64)` - floating point numbers
+- `Int(i64)` - integers; literal `42`
+- `Number(f64)` - floats; literal `42.0` (dot required)
 - `Bool(bool)` - true/false
 - `Void` - internal only; returned by assignment; not usable as a value anywhere
 
@@ -140,7 +142,7 @@ cargo run ./examples/main.sl && qbe -o .build/out.s .build/main.qbe && cc .build
 | 2 | ~~Immutability (`let` vs `let mut`)~~ | Done — `let` immutable by default; `let mut` for mutable |
 | 3 | `for` loop + `break`/`continue` | Range-based: `for i in 0..n { }` |
 | 4 | Modulo `%` + compound assignment (`+=` etc.) | Small additions |
-| 5 | Integer type `int` (i64) | `42` → int, `42.0` → num (dot distinguishes) |
+| 5 | ~~Integer type `int` (i64)~~ | Done — `42` → int, `42.0` → num (dot distinguishes) |
 | 6 | Strings (basic) | Heap-allocated, `print`, concatenation |
 | 7 | Type inference for `let` | `let x = 42` infers `int` |
 | 8 | Arrays | `let xs: [int] = [1, 2, 3]`, indexing, `.len` |
