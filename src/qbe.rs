@@ -255,6 +255,12 @@ impl Compiler {
             Expr::Variable { name } => self.compile_var(name),
             Expr::Assign { name, value } => self.compile_assign(name, value),
             Expr::While { condition, body } => self.compile_while(condition, body),
+            Expr::For {
+                var,
+                start,
+                end,
+                body,
+            } => self.compile_for(var, start, end, body),
             Expr::If {
                 condition,
                 then_branch,
@@ -455,6 +461,87 @@ impl Compiler {
         let result_tmp = self.next_tmp();
         out.push(ResType::Number.init_default_instr(&result_tmp));
         Ok((result_tmp, ResType::Number, out))
+    }
+
+    fn compile_for(
+        &mut self,
+        var: &crate::lexer::Token,
+        start: &Expr,
+        end: &Expr,
+        body: &Vec<Expr>,
+    ) -> Result<(String, ResType, Vec<String>)> {
+        let (start_tmp, start_ty, start_instrs) = self.compile_expr(start)?;
+        if !matches!(start_ty, ResType::Int) {
+            return Err(QbeError::new(
+                format!("for range start must be int, got {:?}", start_ty),
+                start.span().unwrap_or_default(),
+            )
+            .into());
+        }
+        let (end_tmp, end_ty, end_instrs) = self.compile_expr(end)?;
+        if !matches!(end_ty, ResType::Int) {
+            return Err(QbeError::new(
+                format!("for range end must be int, got {:?}", end_ty),
+                end.span().unwrap_or_default(),
+            )
+            .into());
+        }
+
+        let id = self.counter;
+        let i_slot = self.next_tmp();
+        let cond_label = format!("@for_cond_{}", id);
+        let body_label = format!("@for_body_{}", id);
+        let end_label = format!("@for_end_{}", id);
+
+        let mut out = vec![];
+        out.extend(start_instrs);
+        out.push(ResType::Int.alloc_instr(&i_slot));
+        out.push(ResType::Int.store_instr(&start_tmp, &i_slot));
+        out.extend(end_instrs);
+
+        out.push(format!("jmp {}", cond_label));
+        out.push(cond_label.clone());
+
+        let i_cur = self.next_tmp();
+        let cmp_tmp = self.next_tmp();
+        out.push(ResType::Int.load_instr(&i_cur, &i_slot));
+        out.push(format!("{} =w csltl {}, {}", cmp_tmp, i_cur, end_tmp));
+        out.push(format!("jnz {}, {}, {}", cmp_tmp, body_label, end_label));
+
+        out.push(body_label);
+
+        if self.vars.contains_key(&var.lexeme) {
+            return Err(QbeError::new(
+                format!("loop variable '{}' shadows an existing variable", var.lexeme),
+                var.span,
+            )
+            .into());
+        }
+        self.vars.insert(
+            var.lexeme.clone(),
+            VarMeta {
+                slot: i_slot.clone(),
+                ty: ResType::Int,
+                mutable: false,
+            },
+        );
+
+        let (_, _, body_instrs) = self.compile_block(body)?;
+        out.extend(body_instrs);
+
+        self.vars.remove(&var.lexeme);
+
+        let i_inc = self.next_tmp();
+        let i_next = self.next_tmp();
+        out.push(ResType::Int.load_instr(&i_inc, &i_slot));
+        out.push(format!("{} =l add {}, 1", i_next, i_inc));
+        out.push(ResType::Int.store_instr(&i_next, &i_slot));
+        out.push(format!("jmp {}", cond_label));
+
+        out.push(end_label);
+        let result_tmp = self.next_tmp();
+        out.push(ResType::Int.init_default_instr(&result_tmp));
+        Ok((result_tmp, ResType::Int, out))
     }
 
     fn compile_if(
@@ -1141,6 +1228,47 @@ mod tests {
     fn call_emits_call_instruction() {
         let out = compile_program("func id(x: num) -> num {\n x\n}\nid(42)");
         assert!(out.iter().any(|l| l.contains("call $id")));
+    }
+
+    #[test]
+    fn for_loop_emits_labels() {
+        let (_, ty, instrs) = compile_expr("for i in 0..5 { i }");
+        assert_eq!(ty, ResType::Int);
+        assert!(instrs.iter().any(|i| i.starts_with("@for_cond_")));
+        assert!(instrs.iter().any(|i| i.starts_with("@for_body_")));
+        assert!(instrs.iter().any(|i| i.starts_with("@for_end_")));
+        assert!(instrs.iter().any(|i| i.contains("csltl")));
+    }
+
+    #[test]
+    fn for_loop_var_accessible_in_body() {
+        let tokens = parse_into_tokens("for i in 0..3 { print i }").unwrap();
+        let mut parser = Parser::new(tokens);
+        let expr = parser.parse().unwrap();
+        let mut compiler = Compiler::new();
+        let (_, _, instrs) = compiler.compile_expr(&expr).unwrap();
+        assert!(instrs.iter().any(|i| i.contains("fmt_print_i")));
+    }
+
+    #[test]
+    fn for_loop_shadowing_errors() {
+        let tokens = parse_into_tokens("let i: int = 0\nfor i in 0..3 { i }").unwrap();
+        let mut parser = Parser::new(tokens);
+        let exprs = parser.parse_program().unwrap();
+        let mut compiler = Compiler::new();
+        let result = compiler.compile(exprs);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("shadows"));
+    }
+
+    #[test]
+    fn for_loop_non_int_range_errors() {
+        let tokens = parse_into_tokens("for i in 0.0..5.0 { i }").unwrap();
+        let mut parser = Parser::new(tokens);
+        let expr = parser.parse().unwrap();
+        let mut compiler = Compiler::new();
+        let result = compiler.compile_expr(&expr);
+        assert!(result.is_err());
     }
 
     #[test]

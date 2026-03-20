@@ -26,15 +26,8 @@ func fib_dyn(n: int) -> int {
 
 let x: int = 1
 
-if x > 0 {
-    print x
-}
-if x >= 1 {
-    print x
-}
-if x < 2 {
-    print x
-}
-if x <= 1 {
-    print x
+for i in 1..11 {
+    for i in 1..11 {
+        print i*j
+    }
 }

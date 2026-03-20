@@ -27,3 +27,4 @@
 <if_expr>     ::= "if" <expression> "{" <NEWLINE>* <expression> <NEWLINE>* "}"
                   ( "else" "{" <NEWLINE>* <expression> <NEWLINE>* "}" )? ;
 <while_expr>  ::= "while" <expression> "{" ( <NEWLINE>* <expression> )* <NEWLINE>* "}" ;
+<for_expr>    ::= "for" <IDENTIFIER> "in" <expression> ".." <expression> "{" ( <NEWLINE>* <expression> )* <NEWLINE>* "}" ;

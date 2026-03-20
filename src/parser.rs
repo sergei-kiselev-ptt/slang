@@ -59,6 +59,12 @@ pub enum Expr {
         condition: Box<Expr>,
         body: Vec<Expr>,
     },
+    For {
+        var: Token,
+        start: Box<Expr>,
+        end: Box<Expr>,
+        body: Vec<Expr>,
+    },
     Print {
         value: Box<Expr>,
     },
@@ -380,6 +386,10 @@ impl Parser {
             return self.parse_while();
         }
 
+        if self.match_token(&[TokenType::For]) {
+            return self.parse_for();
+        }
+
         if self.match_token(&[TokenType::Print]) {
             let value = self.parse_expr()?;
             return Ok(Expr::Print {
@@ -488,6 +498,23 @@ impl Parser {
         Ok(exprs)
     }
 
+    fn parse_for(&mut self) -> Result<Expr, ParseError> {
+        self.expect(TokenType::Identifier, "expected variable name after 'for'")?;
+        let var = self.previous().clone();
+        self.expect(TokenType::In, "expected 'in' after loop variable")?;
+        let start = self.parse_expr()?;
+        self.expect(TokenType::DotDot, "expected '..' in for range")?;
+        let end = self.parse_expr()?;
+        self.expect(TokenType::LeftBrace, "expected '{' after for range")?;
+        let body = self.parse_block()?;
+        Ok(Expr::For {
+            var,
+            start: Box::new(start),
+            end: Box::new(end),
+            body,
+        })
+    }
+
     fn parse_while(&mut self) -> Result<Expr, ParseError> {
         let condition = self.parse_expr()?;
 
@@ -561,6 +588,18 @@ impl Expr {
                 let kw = if *mutable { "let mut" } else { "let" };
                 format!("({} {} = {})", kw, name.lexeme, value.as_str())
             }
+            Expr::For {
+                var,
+                start,
+                end,
+                body,
+            } => format!(
+                "(for {} in {}..{} {{ {} }})",
+                var.lexeme,
+                start.as_str(),
+                end.as_str(),
+                body.iter().map(|e| e.as_str()).collect::<Vec<_>>().join("; ")
+            ),
             Expr::While { condition, body } => format!(
                 "(while {} {{ {} }})",
                 condition.as_str(),
@@ -637,6 +676,7 @@ impl Expr {
             Expr::Return { value } => value.span(),
             Expr::If { condition, .. } => condition.span(),
             Expr::While { condition, .. } => condition.span(),
+            Expr::For { var, .. } => Some(var.span),
             Expr::Literal(_, span) => Some(*span),
         }
     }
@@ -709,5 +749,23 @@ mod tests {
     fn error_func_missing_arrow() {
         let err = parse_program("func foo() { 1 }").unwrap_err();
         assert!(err.message.contains("expected '->'"));
+    }
+
+    #[test]
+    fn parse_for_loop() {
+        let expr = parse("for i in 0..10 { i }").unwrap();
+        assert_eq!(expr.as_str(), "(for i in 0..10 { i })");
+    }
+
+    #[test]
+    fn error_for_missing_in() {
+        let err = parse("for i 0..10 { i }").unwrap_err();
+        assert!(err.message.contains("expected 'in'"));
+    }
+
+    #[test]
+    fn error_for_missing_dotdot() {
+        let err = parse("for i in 0 10 { i }").unwrap_err();
+        assert!(err.message.contains("expected '..'"));
     }
 }

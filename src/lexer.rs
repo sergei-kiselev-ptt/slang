@@ -35,6 +35,8 @@ pub enum TokenType {
     If,
     Else,
     While,
+    For,
+    In,
     Print,
     Func,
     Return,
@@ -50,6 +52,7 @@ pub enum TokenType {
     Arrow,
     Colon,
     Comma,
+    DotDot,
 
     // Literals
     Number,
@@ -133,6 +136,12 @@ fn scan_next_token(input: &str, current: usize) -> Result<(Option<Token>, usize)
         '+' => Ok((Some(plus()), current + 1)),
         '*' => Ok((Some(star()), current + 1)),
         '/' => Ok((Some(slash()), current + 1)),
+        '.' => {
+            if slice.starts_with("..") {
+                return Ok((Some(dot_dot()), current + 2));
+            }
+            Err(Error::new(ErrorKind::Other, "single '.' is not supported"))
+        }
         '(' => Ok((Some(left_paren()), current + 1)),
         ')' => Ok((Some(right_paren()), current + 1)),
         '{' => Ok((Some(left_brace()), current + 1)),
@@ -253,6 +262,12 @@ fn else_kw() -> Token {
 fn while_kw() -> Token {
     tok(TokenType::While, "while")
 }
+fn for_kw() -> Token {
+    tok(TokenType::For, "for")
+}
+fn in_kw() -> Token {
+    tok(TokenType::In, "in")
+}
 fn print_kw() -> Token {
     tok(TokenType::Print, "print")
 }
@@ -285,6 +300,9 @@ fn colon() -> Token {
 }
 fn comma() -> Token {
     tok(TokenType::Comma, ",")
+}
+fn dot_dot() -> Token {
+    tok(TokenType::DotDot, "..")
 }
 fn equal() -> Token {
     tok(TokenType::Equal, "=")
@@ -405,6 +423,12 @@ fn scan_keyword(input: &str, start: usize) -> (Option<Token>, usize) {
     }
     if let Some(n) = keyword_len(slice, "while") {
         return (Some(while_kw()), start + n);
+    }
+    if let Some(n) = keyword_len(slice, "for") {
+        return (Some(for_kw()), start + n);
+    }
+    if let Some(n) = keyword_len(slice, "in") {
+        return (Some(in_kw()), start + n);
     }
     if let Some(n) = keyword_len(slice, "print") {
         return (Some(print_kw()), start + n);
