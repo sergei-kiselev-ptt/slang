@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use std::io::{Error, ErrorKind};
+use std::io::Error;
 
 use log::error;
 
@@ -140,7 +140,7 @@ fn scan_next_token(input: &str, current: usize) -> Result<(Option<Token>, usize)
             if slice.starts_with("..") {
                 return Ok((Some(dot_dot()), current + 2));
             }
-            Err(Error::new(ErrorKind::Other, "single '.' is not supported"))
+            Err(Error::other("single '.' is not supported"))
         }
         '(' => Ok((Some(left_paren()), current + 1)),
         ')' => Ok((Some(right_paren()), current + 1)),
@@ -174,19 +174,13 @@ fn scan_next_token(input: &str, current: usize) -> Result<(Option<Token>, usize)
             if slice.starts_with("||") {
                 return Ok((Some(logical_or()), current + 2));
             }
-            Err(Error::new(
-                ErrorKind::Other,
-                "single '|' operator is not supported",
-            ))
+            Err(Error::other("single '|' operator is not supported"))
         }
         '&' => {
             if slice.starts_with("&&") {
                 return Ok((Some(logical_and()), current + 2));
             }
-            Err(Error::new(
-                ErrorKind::Other,
-                "single '&' operator is not supported",
-            ))
+            Err(Error::other("single '&' operator is not supported"))
         }
         other => {
             if let (Some(keyword), current) = scan_keyword(input, current) {
@@ -207,7 +201,7 @@ fn scan_next_token(input: &str, current: usize) -> Result<(Option<Token>, usize)
 
             log_lexer_error(input, current, other);
 
-            Err(Error::new(ErrorKind::Other, "lexer error"))
+            Err(Error::other("lexer error"))
         }
     }
 }
@@ -390,7 +384,7 @@ fn keyword_len(slice: &str, word: &str) -> Option<usize> {
         return None;
     }
     let rest = &slice[word.len()..];
-    if rest.is_empty() || rest.chars().next().map_or(false, is_word_boundary) {
+    if rest.is_empty() || rest.chars().next().is_none_or(is_word_boundary) {
         return Some(word.len());
     }
 

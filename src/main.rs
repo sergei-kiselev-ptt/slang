@@ -50,7 +50,7 @@ fn process_file(file_path: &str) -> Result<(), Error> {
     let mut parser = Parser::new(tokens);
     let exprs = parser.parse_program().map_err(|e| {
         print_parse_error(file_path, &content_str, &e);
-        Error::new(std::io::ErrorKind::Other, e.to_string())
+        Error::other(e.to_string())
     })?;
 
     let mut compiler = Compiler::new();
@@ -60,13 +60,13 @@ fn process_file(file_path: &str) -> Result<(), Error> {
         } else {
             eprintln!("error: {}", e);
         }
-        Error::new(std::io::ErrorKind::Other, e.to_string())
+        Error::other(e.to_string())
     })?;
     println!("------------------");
     let mut file = File::create(".build/main.qbe")?;
     for line in text {
         println!("{}", line);
-        write!(file, "{}\n", line)?;
+        writeln!(file, "{}", line)?;
     }
     println!("------------------");
     Ok(())
@@ -82,13 +82,13 @@ fn print_compile_error(file_path: &str, source: &str, message: &str, span: Optio
             "error: {} [{}:{}:{}]",
             message, file_path, span.line, span.col
         );
-        if span.line > 0 {
-            if let Some(line) = source.lines().nth(span.line - 1) {
-                eprintln!("  {} | {}", span.line, line);
-                let padding = format!("{}", span.line).len() + 3 + span.col.saturating_sub(1);
-                let underline_len = span.len.max(1);
-                eprintln!("{}{}", " ".repeat(padding), "^".repeat(underline_len));
-            }
+        if span.line > 0
+            && let Some(line) = source.lines().nth(span.line - 1)
+        {
+            eprintln!("  {} | {}", span.line, line);
+            let padding = format!("{}", span.line).len() + 3 + span.col.saturating_sub(1);
+            let underline_len = span.len.max(1);
+            eprintln!("{}{}", " ".repeat(padding), "^".repeat(underline_len));
         }
     } else {
         eprintln!("error: {}", message);

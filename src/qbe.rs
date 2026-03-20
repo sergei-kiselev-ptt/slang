@@ -8,6 +8,12 @@ use crate::{
     parser::{Expr, LiteralValue, TypeAnnotation},
 };
 
+impl Default for Compiler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Compiler {
     pub fn compile(&mut self, exprs: Vec<Expr>) -> Result<Vec<String>> {
         let mut func_defs = vec![];
@@ -316,7 +322,7 @@ impl Compiler {
     fn compile_unary(
         &mut self,
         operator: &crate::lexer::Token,
-        right: &Box<Expr>,
+        right: &Expr,
     ) -> std::result::Result<(String, ResType, Vec<String>), anyhow::Error> {
         let (right_tmp, _right_ty, mut instructions) = self.compile_expr(right)?;
         let tmp = self.next_tmp();
@@ -333,13 +339,11 @@ impl Compiler {
                 instructions.push(format!("{} =w ceqw {}, 0", tmp, right_tmp));
                 Ok((tmp, ResType::Bool, instructions))
             }
-            _ => {
-                return Err(QbeError::new(
-                    format!("unknown unary operator '{}'", operator.lexeme),
-                    operator.span,
-                )
-                .into());
-            }
+            _ => Err(QbeError::new(
+                format!("unknown unary operator '{}'", operator.lexeme),
+                operator.span,
+            )
+            .into()),
         }
     }
 
@@ -363,7 +367,7 @@ impl Compiler {
     fn compile_assign(
         &mut self,
         name: &crate::lexer::Token,
-        value: &Box<Expr>,
+        value: &Expr,
     ) -> std::result::Result<(String, ResType, Vec<String>), anyhow::Error> {
         let var_name = name.lexeme.clone();
         let (val_tmp, ty, mut instructions) = self.compile_expr(value)?;
@@ -398,7 +402,7 @@ impl Compiler {
         &mut self,
         name: &crate::lexer::Token,
         type_ann: &crate::parser::TypeAnnotation,
-        value: &Box<Expr>,
+        value: &Expr,
         mutable: bool,
     ) -> Result<(String, ResType, Vec<String>)> {
         let declared_ty = res_type_from_annotation(type_ann);
@@ -421,7 +425,7 @@ impl Compiler {
             VarMeta {
                 slot,
                 ty: declared_ty.clone(),
-                mutable: mutable,
+                mutable,
             },
         );
         Ok((val_tmp, declared_ty, instructions))
@@ -429,8 +433,8 @@ impl Compiler {
 
     fn compile_while(
         &mut self,
-        condition: &Box<Expr>,
-        body: &Vec<Expr>,
+        condition: &Expr,
+        body: &[Expr],
     ) -> std::result::Result<(String, ResType, Vec<String>), anyhow::Error> {
         let id = self.counter;
         let cond_label = format!("@cond_{}", id);
@@ -468,7 +472,7 @@ impl Compiler {
         var: &crate::lexer::Token,
         start: &Expr,
         end: &Expr,
-        body: &Vec<Expr>,
+        body: &[Expr],
     ) -> Result<(String, ResType, Vec<String>)> {
         let (start_tmp, start_ty, start_instrs) = self.compile_expr(start)?;
         if !matches!(start_ty, ResType::Int) {
@@ -512,7 +516,10 @@ impl Compiler {
 
         if self.vars.contains_key(&var.lexeme) {
             return Err(QbeError::new(
-                format!("loop variable '{}' shadows an existing variable", var.lexeme),
+                format!(
+                    "loop variable '{}' shadows an existing variable",
+                    var.lexeme
+                ),
                 var.span,
             )
             .into());
@@ -546,8 +553,8 @@ impl Compiler {
 
     fn compile_if(
         &mut self,
-        condition: &Box<Expr>,
-        then_branch: &Vec<Expr>,
+        condition: &Expr,
+        then_branch: &[Expr],
         else_branch: &Option<Vec<Expr>>,
     ) -> std::result::Result<(String, ResType, Vec<String>), anyhow::Error> {
         let (cond_tmp, cond_ty, cond_instrs) = self.compile_expr(condition)?;
@@ -613,7 +620,7 @@ impl Compiler {
     fn compile_func_call(
         &mut self,
         name: &crate::lexer::Token,
-        args: &Vec<Expr>,
+        args: &[Expr],
     ) -> std::result::Result<(String, ResType, Vec<String>), anyhow::Error> {
         let func_name = &name.lexeme;
         let sig = self
@@ -656,7 +663,7 @@ impl Compiler {
 
     fn compile_print(
         &mut self,
-        value: &Box<Expr>,
+        value: &Expr,
     ) -> std::result::Result<(String, ResType, Vec<String>), anyhow::Error> {
         let (val_tmp, ty, mut instructions) = self.compile_expr(value)?;
         match ty {
@@ -694,9 +701,9 @@ impl Compiler {
 
     fn compile_binary_expr(
         &mut self,
-        left: &Box<Expr>,
+        left: &Expr,
         operator: &crate::lexer::Token,
-        right: &Box<Expr>,
+        right: &Expr,
     ) -> std::result::Result<(String, ResType, Vec<String>), anyhow::Error> {
         let (l_tmp, l_type, l_instructions) = self.compile_expr(left)?;
         let (r_tmp, r_type, r_instructions) = self.compile_expr(right)?;
@@ -742,13 +749,9 @@ fn float_comp_op_code(op: TokenType) -> Result<String> {
         TokenType::GreaterEqual => Ok("cged".to_string()),
         TokenType::Less => Ok("cltd".to_string()),
         TokenType::LessEqual => Ok("cled".to_string()),
-        _ => {
-            return Err(QbeError::no_span(format!(
-                "{:?} is not a valid float comparison operator",
-                op
-            ))
-            .into());
-        }
+        _ => Err(
+            QbeError::no_span(format!("{:?} is not a valid float comparison operator", op)).into(),
+        ),
     }
 }
 
